@@ -1,0 +1,7 @@
+[package]
+name = "wolfrisk"
+version = "0.1.0"
+authors = ["Nick Hamann <nick@wabbo.org>"]
+
+[dependencies]
+rand = "0.3"
