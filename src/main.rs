@@ -4,6 +4,40 @@ use rand::Rng;
 
 const NUM_TERRITORIES: usize = 42;
 
+#[derive(Copy, Clone)]
+enum Continent {
+    Australia,
+    South_America,
+    Africa,
+    Europe,
+    North_America,
+    Asia,
+}
+
+impl Continent {
+    fn get_range(&self) -> std::ops::Range<u8> {
+        match *self {
+            Continent::Australia     => 0..4,
+            Continent::South_America => 4..8,
+            Continent::Africa        => 8..14,
+            Continent::Europe        => 14..21,
+            Continent::North_America => 21..30,
+            Continent::Asia          => 30..42,
+        }
+    }
+
+    fn get_bonus(&self) -> u8 {
+        match *self {
+            Continent::Australia     => 2,
+            Continent::South_America => 2,
+            Continent::Africa        => 3,
+            Continent::Europe        => 5,
+            Continent::North_America => 5,
+            Continent::Asia          => 7,
+        }
+    }
+}
+
 // Loosely follow architecture from Wolf's thesis
 // Game manager: contains a game board, some rules, and a collection of players?
 //
@@ -25,8 +59,18 @@ trait GameBoard {
     fn get_owner(&self, TerritoryId) -> PlayerId;
     fn get_num_armies(&self, TerritoryId) -> u8;
     fn get_num_cards(&self, PlayerId) -> u8;
+    fn get_num_owned_territories(&self, PlayerId) -> u8;
+    fn get_continent_bonuses(&self, PlayerId) -> u8;
+    fn player_owns_continent(&self, PlayerId, Continent) -> bool;
+
+    // calculate to total number of reinforcements that a player will
+    // receive from terrritories held and continent bonuses
+    fn get_territory_reinforcements(&self, player: PlayerId) -> u8;
+
     fn set_territory(&mut self, TerritoryId, PlayerId, u8);
     fn set_num_cards(&mut self, PlayerId, u8);
+    fn game_is_over(&self) -> bool;
+    fn player_is_defeated(&self, PlayerId) -> bool;
 }
 
 type GameBoardTerritories = [(PlayerId, u8); NUM_TERRITORIES];
@@ -61,6 +105,53 @@ impl GameBoard for StandardGameBoard {
         self.num_cards[player as usize]
     }
 
+    fn get_num_owned_territories(&self, player: PlayerId) -> u8 {
+        let mut count = 0;
+        for i in 0..NUM_TERRITORIES {
+            if player == self.territories[i].0 {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    fn get_continent_bonuses(&self, player: PlayerId) -> u8 {
+        let mut bonus = 0;
+
+        let continents = [
+            Continent::Australia,
+            Continent::South_America,
+            Continent::Africa,
+            Continent::Europe,
+            Continent::North_America,
+            Continent::Asia
+        ];
+
+        for continent in continents.iter() {
+            if self.player_owns_continent(player, *continent) {
+                bonus += continent.get_bonus();
+            }
+        }
+
+        bonus
+    }
+
+    fn player_owns_continent(&self, player: PlayerId, continent: Continent) -> bool {
+        for i in continent.get_range() {
+            if self.get_owner(i) != player {
+                return false
+            }
+            println!("player owns {}", i);
+        }
+        true
+    }
+
+    fn get_territory_reinforcements(&self, player: PlayerId) -> u8 {
+        let num_terr = self.get_num_owned_territories(player);
+        let continent_bonuses = self.get_continent_bonuses(player);
+        num_terr + continent_bonuses
+    }
+
     fn set_territory(&mut self, terr: TerritoryId, owner: PlayerId, num_armies: u8) {
         if owner as u8 > self.num_players {
             panic!("Error in `set_armies`: invalid player for owner");
@@ -76,10 +167,80 @@ impl GameBoard for StandardGameBoard {
 
         self.num_cards[player as usize] = num_cards;
     }
+
+    fn game_is_over(&self) -> bool {
+        let owner0 = self.get_owner(0);
+        for i in 1..NUM_TERRITORIES {
+            if self.get_owner(i as TerritoryId) != owner0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn player_is_defeated(&self, player: PlayerId) -> bool {
+        for i in 0..NUM_TERRITORIES {
+            if player == self.territories[i].0 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Trade {
+    cards: [Card; 3],
+}
+
+impl Trade {
+    fn new(cards: [Card; 3]) -> Trade {
+        Trade { cards: cards }
+    }
+
+    fn contains_wild(&self) -> bool {
+        for i in 0..3 {
+            if let Card::Wild = self.cards[i] {
+                return true;
+            }
+        }
+        false
+    }
+
+    // returns whether the 3 cards contain no wilds but still form a set
+    // (i.e. 3 of a kind or 1 of each kind)
+    fn is_non_wild_set(&self) -> bool {
+        match (self.cards[0], self.cards[1], self.cards[2]) {
+            (Card::Territory(_, symbol0),
+             Card::Territory(_, symbol1),
+             Card::Territory(_, symbol2)) => {
+                if symbol0 == symbol1 && symbol1 == symbol2 {
+                    true
+                } else if symbol0 != symbol1 && symbol1 != symbol2 && symbol0 != symbol2 {
+                    true
+                } else {
+                    false
+                }
+            },
+            _ => false,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum CardSymbol {
+    Infantry,
+    Cavalry,
+    Artillery,
+}
+
+#[derive(Copy, Clone)]
+enum Card {
+    Territory(TerritoryId, CardSymbol),
+    Wild,
 }
 
 // TODO
-type Trade = ();
 type Reinforcement = ();
 type Attack = ();
 type Move = ();
@@ -110,7 +271,7 @@ trait Player {
 struct RandomPlayer;
 
 impl RandomPlayer {
-    // returns a vector of random players, each of them boxed.
+    // returns a vector of random players (each player is a trait object)
     pub fn make_random_players(number: usize) -> Vec<Box<Player>> {
         let mut players = vec![];
         for i in 0..number {
@@ -146,6 +307,7 @@ impl Player for RandomPlayer {
 struct GameManager {
     players: Vec<Box<Player>>,
     board: Box<GameBoard>,
+    next_player: usize,
 }
 
 impl GameManager {
@@ -159,8 +321,58 @@ impl GameManager {
         GameManager {
             players: players,
             board: Box::new(board),
+            next_player: 0,
         }
     }
+
+    fn next_player(&mut self) -> PlayerId {
+        let next = self.next_player as PlayerId;
+        self.next_player = (self.next_player + 1) % self.players.len();
+        next
+    }
+
+    pub fn run(&mut self) {
+        let mut current_player = self.next_player();
+
+        while !self.board.game_is_over() {
+            if !self.board.player_is_defeated(current_player) {
+                self.process_trade(current_player);
+            }
+            current_player = self.next_player();
+        }
+    }
+
+    pub fn process_trade(&self, current_id: PlayerId) {
+        if self.board.get_num_cards(current_id) > 2 {
+            let current_player = self.get_player(current_id);
+            let trade_necessary = self.board.get_num_cards(current_id) > 4;
+            let terr_reinf = self.board.get_territory_reinforcements(current_id);
+
+            loop {
+                let chosen_trade = current_player.make_trade(terr_reinf, trade_necessary);
+                if self.verify_trade(chosen_trade, trade_necessary) {
+                    if chosen_trade.is_some() {
+                        // TODO: carry out trade
+                    }
+                    break;
+                } else {
+                    println!("Invalid trade chosen. Choose again.");
+                }
+            }
+        }
+    }
+
+    fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
+        match trade {
+            None => !necessary,
+            Some(trade) => trade.contains_wild() || trade.is_non_wild_set(),
+        }
+    }
+
+    fn get_player(&self, id: PlayerId) -> &Player {
+        self.players[id as usize].as_ref()
+    }
+
 }
 
 // distributes the territories as equally as possible among the available players
