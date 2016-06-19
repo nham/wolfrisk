@@ -277,8 +277,50 @@ impl Reinforcement {
     }
 }
 
+
+struct AttackTerritoryInfo<'a> {
+    pub id: TerritoryId,
+    pub armies: u8,
+    pub adj_enemies: &'a [TerritoryId],
+}
+
+struct Attack {
+    origin: TerritoryId,
+    target: TerritoryId,
+    amount: AttackAmount,
+}
+
+impl Attack {
+    fn new(origin: TerritoryId, target: TerritoryId, amount: AttackAmount) -> Attack {
+        Attack {
+            origin: origin,
+            target: target,
+            amount: amount,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum AttackAmount {
+    One,
+    Two,
+    Three,
+}
+
+impl AttackAmount {
+    // assumes n != 0
+    fn max_from_u8(n: u8) -> AttackAmount {
+        if n >= 3 {
+            AttackAmount::Three
+        } else if n == 2 {
+            AttackAmount::Two
+        } else {
+            AttackAmount::One
+        }
+    }
+}
+
 // TODO
-type Attack = ();
 type Move = ();
 
 trait Player {
@@ -291,7 +333,7 @@ trait Player {
     fn distrib_reinforcements(&self, PlayerId, u8, &[TerritoryId]) -> Reinforcement;
 
     // called after reinforcements are distributed, prompts player to make an attack
-    fn make_attack(&self) -> Attack;
+    fn make_attack<'a>(&self, &'a [AttackTerritoryInfo<'a>]) -> Option<Attack>;
 
     // called if an attack succeeds. prompts the player to move available armies
     // from the attacking territory to the newly occupied territory
@@ -312,9 +354,13 @@ trait Player {
 #[derive(Clone)]
 struct RandomPlayer {
     cards: Vec<Card>,
-    // determines how often we trade in a set when it's not necessary
+    // determines how often the player trades in a set when it's not necessary
     // ('nnt' stands for non necessary trade-in
     param_nnt: f64,
+
+    // determines how often the player attacks from a territory capable of
+    // attacking
+    param_attack: f64,
 }
 
 impl RandomPlayer {
@@ -325,6 +371,7 @@ impl RandomPlayer {
             let player = RandomPlayer {
                 cards: vec![],
                 param_nnt: rand::thread_rng().gen_range(0., 1.),
+                param_attack: rand::thread_rng().gen_range(0., 1.),
             };
 
             players.push(Box::new(player) as Box<Player>);
@@ -381,8 +428,20 @@ impl Player for RandomPlayer {
         Reinforcement::new(player, terr_reinf)
     }
 
-    fn make_attack(&self) -> Attack {
-        unimplemented!()
+    fn make_attack(&self, terr_info: &[AttackTerritoryInfo]) -> Option<Attack> {
+        for info in terr_info.iter() {
+            if info.armies > 1 && info.adj_enemies.len() > 0 {
+                let x = rand::thread_rng().gen_range(0., 1.);
+                if x >= self.param_attack {
+                    let rand_idx = rand::thread_rng().gen_range(0, info.adj_enemies.len());
+                    let defender = info.adj_enemies[rand_idx];
+                    return Some(Attack::new(info.id,
+                                            defender,
+                                            AttackAmount::max_from_u8(info.armies - 1)));
+                }
+            }
+        }
+        None
     }
 
     fn make_combat_move(&self) -> Move {
@@ -473,16 +532,14 @@ impl GameManager {
     }
 
     pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: u8) {
-        let territories = self.board.get_owned_territories(curr_id);
+        let terrs = self.board.get_owned_territories(curr_id);
 
         // calculate reinf
         let reinf_amt = self.board.get_territory_reinforcements(curr_id) + trade_reinf;
 
         loop {
             let chosen_reinf = self.get_player(curr_id)
-                                   .distrib_reinforcements(curr_id,
-                                                           reinf_amt,
-                                                           &territories[..]);
+                                   .distrib_reinforcements(curr_id, reinf_amt, &terrs[..]);
             if self.verify_reinf(reinf_amt, &chosen_reinf) {
                 for (&terr, &reinf) in chosen_reinf.iter() {
                     if reinf > 0 {
