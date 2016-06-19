@@ -1,6 +1,7 @@
 extern crate rand;
 
 use rand::Rng;
+use std::collections::HashMap;
 
 const NUM_TERRITORIES: usize = 42;
 
@@ -60,6 +61,7 @@ trait GameBoard {
     fn get_num_armies(&self, TerritoryId) -> u8;
     fn get_num_cards(&self, PlayerId) -> u8;
     fn get_num_owned_territories(&self, PlayerId) -> u8;
+    fn get_owned_territories(&self, PlayerId) -> Vec<TerritoryId>;
     fn get_continent_bonuses(&self, PlayerId) -> u8;
     fn player_owns_continent(&self, PlayerId, Continent) -> bool;
 
@@ -113,6 +115,16 @@ impl GameBoard for StandardGameBoard {
             }
         }
         count
+    }
+
+    fn get_owned_territories(&self, player: PlayerId) -> Vec<TerritoryId> {
+        let mut terrs = vec![];
+        for i in 0..NUM_TERRITORIES {
+            if player == self.territories[i].0 {
+                terrs.push(i as TerritoryId);
+            }
+        }
+        terrs
     }
 
     fn get_continent_bonuses(&self, player: PlayerId) -> u8 {
@@ -242,8 +254,30 @@ enum Card {
     Wild,
 }
 
+
+struct Reinforcement {
+    player: PlayerId,
+    reinf: HashMap<TerritoryId, u8>,
+}
+
+impl Reinforcement {
+    fn new(player: PlayerId, reinf: HashMap<TerritoryId, u8>) -> Reinforcement {
+        Reinforcement {
+            player: player,
+            reinf: reinf,
+        }
+    }
+
+    fn iter(&self) -> std::collections::hash_map::Iter<TerritoryId, u8> {
+        self.reinf.iter()
+    }
+
+    fn player(&self) -> PlayerId {
+        self.player
+    }
+}
+
 // TODO
-type Reinforcement = ();
 type Attack = ();
 type Move = ();
 
@@ -254,7 +288,7 @@ trait Player {
 
     // called after a potential Risk set trade, prompts the player to distribute
     // available reinforcements
-    fn distrib_reinforcements(&self, reinf: u8) -> Reinforcement;
+    fn distrib_reinforcements(&self, PlayerId, u8, &[TerritoryId]) -> Reinforcement;
 
     // called after reinforcements are distributed, prompts player to make an attack
     fn make_attack(&self) -> Attack;
@@ -330,8 +364,21 @@ impl Player for RandomPlayer {
         None
     }
 
-    fn distrib_reinforcements(&self, reinf: u8) -> Reinforcement {
-        unimplemented!()
+    fn distrib_reinforcements(&self,
+                              player: PlayerId,
+                              reinf: u8,
+                              owned: &[TerritoryId])
+                              -> Reinforcement {
+        let mut terr_reinf = HashMap::new();
+        for i in 0..reinf {
+            // pick a random owned territory to assign this reinforcement to
+            let rand_idx = rand::thread_rng().gen_range(0, owned.len());
+            let rand_terr = owned[rand_idx];
+            let amt = terr_reinf.entry(rand_terr).or_insert(0);
+            *amt += 1;
+        }
+
+        Reinforcement::new(player, terr_reinf)
     }
 
     fn make_attack(&self) -> Attack {
@@ -390,37 +437,84 @@ impl GameManager {
 
         while !self.board.game_is_over() {
             if !self.board.player_is_defeated(current_player) {
-                self.process_trade(current_player);
+                let trade_reinf = self.process_trade(current_player);
+                self.process_reinforcement(current_player, trade_reinf);
             }
             current_player = self.next_player();
         }
     }
 
-    pub fn process_trade(&self, current_id: PlayerId) {
+    // returns the number of extra reinforcements resulting from trading cards in
+    pub fn process_trade(&self, current_id: PlayerId) -> u8 {
         if self.board.get_num_cards(current_id) > 2 {
             let current_player = self.get_player(current_id);
             let trade_necessary = self.board.get_num_cards(current_id) > 4;
             let terr_reinf = self.board.get_territory_reinforcements(current_id);
 
+            let mut reinf = 0;
             loop {
                 let chosen_trade = current_player.make_trade(terr_reinf, trade_necessary);
                 if self.verify_trade(chosen_trade, trade_necessary) {
                     if chosen_trade.is_some() {
                         // TODO: carry out trade
+                        // reinf += reinforcements from carrying out the trade-in
                     }
-                    break;
+
+                    if self.board.get_num_cards(current_id) < 5 {
+                        break;
+                    }
                 } else {
                     println!("Invalid trade chosen. Choose again.");
                 }
+            }
+            return reinf;
+        }
+        0
+    }
+
+    pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: u8) {
+        let territories = self.board.get_owned_territories(curr_id);
+
+        // calculate reinf
+        let reinf_amt = self.board.get_territory_reinforcements(curr_id) + trade_reinf;
+
+        loop {
+            let chosen_reinf = self.get_player(curr_id)
+                                   .distrib_reinforcements(curr_id,
+                                                           reinf_amt,
+                                                           &territories[..]);
+            if self.verify_reinf(reinf_amt, &chosen_reinf) {
+                for (&terr, &reinf) in chosen_reinf.iter() {
+                    if reinf > 0 {
+                        let owner = self.board.get_owner(terr);
+                        let num_armies = self.board.get_num_armies(terr);
+                        self.board.set_territory(terr, owner, num_armies + reinf);
+                    }
+                }
+                break;
+            } else {
+                println!("Invalid reinforcement chosen. Choose again.");
             }
         }
     }
 
     fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
+        // TODO: verify that player owns each card it's trying to trade in?
         match trade {
             None => !necessary,
             Some(trade) => trade.is_set(),
         }
+    }
+
+    fn verify_reinf(&self, reinf_amt: u8, reinf: &Reinforcement) -> bool {
+        let mut total_amt = 0;
+        for (&terr, &amt) in reinf.iter() {
+            total_amt += amt;
+            if self.board.get_owner(terr) != reinf.player() {
+                return false;
+            }
+        }
+        total_amt == reinf_amt
     }
 
     fn get_player(&self, id: PlayerId) -> &Player {
