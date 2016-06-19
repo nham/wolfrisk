@@ -198,6 +198,10 @@ impl Trade {
         Trade { cards: cards }
     }
 
+    fn is_set(&self) -> bool {
+        self.contains_wild() || self.is_non_wild_set()
+    }
+
     fn contains_wild(&self) -> bool {
         for i in 0..3 {
             if let Card::Wild = self.cards[i] {
@@ -264,18 +268,34 @@ trait Player {
     // called exactly once per turn after all attacks are completed. prompts the user
     // to fortify a territory?
     fn fortify(&self) -> Move;
+
+    fn add_cards(&mut self, cards: Vec<Card>);
+
+    fn get_cards(&self) -> &[Card];
+
+    fn remove_card(&mut self, usize);
 }
 
 
 #[derive(Clone)]
-struct RandomPlayer;
+struct RandomPlayer {
+    cards: Vec<Card>,
+    // determines how often we trade in a set when it's not necessary
+    // ('nnt' stands for non necessary trade-in
+    param_nnt: f64,
+}
 
 impl RandomPlayer {
     // returns a vector of random players (each player is a trait object)
     pub fn make_random_players(number: usize) -> Vec<Box<Player>> {
         let mut players = vec![];
         for i in 0..number {
-            players.push(Box::new(RandomPlayer) as Box<Player>);
+            let player = RandomPlayer {
+                cards: vec![],
+                param_nnt: rand::thread_rng().gen_range(0., 1.),
+            };
+
+            players.push(Box::new(player) as Box<Player>);
         }
         players
     }
@@ -283,7 +303,33 @@ impl RandomPlayer {
 
 impl Player for RandomPlayer {
     fn make_trade(&self, other_reinf: u8, necessary: bool) -> Option<Trade> {
-        unimplemented!()
+        // if necessary or not necessary but a random roll exceeded k for some k in [0, 1]
+        // then we make a trade. Identify all of the sets and pick one at
+        // random.
+        let x = rand::thread_rng().gen_range(0., 1.);
+        if !necessary && x < self.param_nnt {
+            return None;
+        }
+
+        // clone the card list and shuffle it
+        let mut cards = self.cards.clone();
+        let N = cards.len();
+
+        rand::thread_rng().shuffle(&mut cards);
+
+        // exhaustively search all subsets of order 3 to see if one is a set
+        for i in 0..(N-2) {
+            for j in (i+1)..(N-1) {
+                for k in (j+1)..N {
+                    let possible_trade = Trade::new([cards[i], cards[j], cards[k]]);
+                    if possible_trade.is_set() {
+                        return Some(possible_trade);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     fn distrib_reinforcements(&self, reinf: u8) -> Reinforcement {
@@ -300,6 +346,18 @@ impl Player for RandomPlayer {
 
     fn fortify(&self) -> Move {
         unimplemented!()
+    }
+
+    fn add_cards(&mut self, cards: Vec<Card>) {
+        self.cards.extend(cards);
+    }
+
+    fn get_cards(&self) -> &[Card] {
+        &self.cards[..]
+    }
+
+    fn remove_card(&mut self, i: usize) {
+        self.cards.remove(i);
     }
 }
 
@@ -365,7 +423,7 @@ impl GameManager {
     fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
         match trade {
             None => !necessary,
-            Some(trade) => trade.contains_wild() || trade.is_non_wild_set(),
+            Some(trade) => trade.is_set(),
         }
     }
 
