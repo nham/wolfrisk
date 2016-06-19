@@ -118,14 +118,12 @@ impl GameBoard for StandardGameBoard {
     fn get_continent_bonuses(&self, player: PlayerId) -> u8 {
         let mut bonus = 0;
 
-        let continents = [
-            Continent::Australia,
-            Continent::South_America,
-            Continent::Africa,
-            Continent::Europe,
-            Continent::North_America,
-            Continent::Asia
-        ];
+        let continents = [Continent::Australia,
+                          Continent::South_America,
+                          Continent::Africa,
+                          Continent::Europe,
+                          Continent::North_America,
+                          Continent::Asia];
 
         for continent in continents.iter() {
             if self.player_owns_continent(player, *continent) {
@@ -139,7 +137,7 @@ impl GameBoard for StandardGameBoard {
     fn player_owns_continent(&self, player: PlayerId, continent: Continent) -> bool {
         for i in continent.get_range() {
             if self.get_owner(i) != player {
-                return false
+                return false;
             }
             println!("player owns {}", i);
         }
@@ -225,7 +223,7 @@ impl Trade {
                 } else {
                     false
                 }
-            },
+            }
             _ => false,
         }
     }
@@ -260,7 +258,7 @@ trait Player {
 
     // called after reinforcements are distributed, prompts player to make an attack
     fn make_attack(&self) -> Attack;
- 
+
     // called if an attack succeeds. prompts the player to move available armies
     // from the attacking territory to the newly occupied territory
     fn make_combat_move(&self) -> Move;
@@ -318,9 +316,9 @@ impl Player for RandomPlayer {
         rand::thread_rng().shuffle(&mut cards);
 
         // exhaustively search all subsets of order 3 to see if one is a set
-        for i in 0..(N-2) {
-            for j in (i+1)..(N-1) {
-                for k in (j+1)..N {
+        for i in 0..(N - 2) {
+            for j in (i + 1)..(N - 1) {
+                for k in (j + 1)..N {
                     let possible_trade = Trade::new([cards[i], cards[j], cards[k]]);
                     if possible_trade.is_set() {
                         return Some(possible_trade);
@@ -339,7 +337,7 @@ impl Player for RandomPlayer {
     fn make_attack(&self) -> Attack {
         unimplemented!()
     }
- 
+
     fn make_combat_move(&self) -> Move {
         unimplemented!()
     }
@@ -371,10 +369,8 @@ struct GameManager {
 impl GameManager {
     pub fn new_game(players: Vec<Box<Player>>) -> GameManager {
         let num_players = players.len() as u8;
-        let board = StandardGameBoard::new(
-            num_players,
-            distrib_board_territories_randomly(num_players)
-        );
+        let board = StandardGameBoard::new(num_players,
+                                           distrib_board_territories_randomly(num_players));
 
         GameManager {
             players: players,
@@ -430,7 +426,6 @@ impl GameManager {
     fn get_player(&self, id: PlayerId) -> &Player {
         self.players[id as usize].as_ref()
     }
-
 }
 
 // distributes the territories as equally as possible among the available players
