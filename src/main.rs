@@ -1,5 +1,8 @@
+extern crate petgraph;
 extern crate rand;
 
+use petgraph::{Graph, Undirected};
+use petgraph::graph::NodeIndex;
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -73,6 +76,23 @@ trait GameBoard {
     fn set_num_cards(&mut self, PlayerId, u8);
     fn game_is_over(&self) -> bool;
     fn player_is_defeated(&self, PlayerId) -> bool;
+
+    // A GameBoard has an underlying GameMap
+    fn game_map(&self) -> &GameMap;
+}
+
+trait GameMap {
+    fn are_adjacent(&self, a: TerritoryId, b: TerritoryId) -> bool;
+    fn get_neighbors(&self, TerritoryId) -> Vec<TerritoryId>;
+}
+
+type TerritoryGraph = Graph<(PlayerId, u8), (), Undirected, TerritoryId>;
+
+fn standard_risk_map() -> TerritoryGraph {
+    // TODO: correct number of edges
+    let mut graph = TerritoryGraph::with_capacity(42, 100);
+    // let mut graph = Graph::new_undirected();
+    graph
 }
 
 type GameBoardTerritories = [(PlayerId, u8); NUM_TERRITORIES];
@@ -82,6 +102,7 @@ struct StandardGameBoard {
     num_players: u8,
     territories: GameBoardTerritories,
     num_cards: Vec<u8>,
+    map: TerritoryGraph,
 }
 
 impl StandardGameBoard {
@@ -90,6 +111,7 @@ impl StandardGameBoard {
             num_players: num_players,
             territories: territories,
             num_cards: vec![0; num_players as usize],
+            map: standard_risk_map(),
         }
     }
 }
@@ -196,7 +218,32 @@ impl GameBoard for StandardGameBoard {
         }
         true
     }
+
+    fn game_map(&self) -> &GameMap {
+        &self.map
+    }
 }
+
+impl GameMap for TerritoryGraph {
+    fn are_adjacent(&self, a: TerritoryId, b: TerritoryId) -> bool {
+        for neighbor in self.neighbors(NodeIndex::new(a as usize)) {
+            if neighbor == NodeIndex::new(b as usize) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn get_neighbors(&self, t: TerritoryId) -> Vec<TerritoryId> {
+        let mut neighbors = Vec::new();
+
+        for n in self.neighbors(NodeIndex::new(t as usize)) {
+            neighbors.push(n.index() as TerritoryId);
+        }
+        neighbors
+    }
+}
+
 
 #[derive(Copy, Clone)]
 struct Trade {
@@ -278,21 +325,27 @@ impl Reinforcement {
 }
 
 
-struct AttackTerritoryInfo<'a> {
+struct AttackTerritoryInfo {
     pub id: TerritoryId,
     pub armies: u8,
-    pub adj_enemies: &'a [TerritoryId],
+    pub adj_enemies: Vec<TerritoryId>,
 }
 
 struct Attack {
+    attacker: PlayerId,
     origin: TerritoryId,
     target: TerritoryId,
     amount: AttackAmount,
 }
 
 impl Attack {
-    fn new(origin: TerritoryId, target: TerritoryId, amount: AttackAmount) -> Attack {
+    fn new(attacker: PlayerId,
+           origin: TerritoryId,
+           target: TerritoryId,
+           amount: AttackAmount)
+           -> Attack {
         Attack {
+            attacker: attacker,
             origin: origin,
             target: target,
             amount: amount,
@@ -333,7 +386,9 @@ trait Player {
     fn distrib_reinforcements(&self, PlayerId, u8, &[TerritoryId]) -> Reinforcement;
 
     // called after reinforcements are distributed, prompts player to make an attack
-    fn make_attack<'a>(&self, &'a [AttackTerritoryInfo<'a>]) -> Option<Attack>;
+    // takes a slice where each element is an information data structure corresponding
+    // to one of the territories that the player owns.
+    fn make_attack(&self, PlayerId, &[AttackTerritoryInfo]) -> Option<Attack>;
 
     // called if an attack succeeds. prompts the player to move available armies
     // from the attacking territory to the newly occupied territory
@@ -428,14 +483,15 @@ impl Player for RandomPlayer {
         Reinforcement::new(player, terr_reinf)
     }
 
-    fn make_attack(&self, terr_info: &[AttackTerritoryInfo]) -> Option<Attack> {
+    fn make_attack(&self, player: PlayerId, terr_info: &[AttackTerritoryInfo]) -> Option<Attack> {
         for info in terr_info.iter() {
             if info.armies > 1 && info.adj_enemies.len() > 0 {
                 let x = rand::thread_rng().gen_range(0., 1.);
                 if x >= self.param_attack {
                     let rand_idx = rand::thread_rng().gen_range(0, info.adj_enemies.len());
                     let defender = info.adj_enemies[rand_idx];
-                    return Some(Attack::new(info.id,
+                    return Some(Attack::new(player,
+                                            info.id,
                                             defender,
                                             AttackAmount::max_from_u8(info.armies - 1)));
                 }
@@ -469,7 +525,7 @@ impl Player for RandomPlayer {
 struct GameManager {
     players: Vec<Box<Player>>,
     board: Box<GameBoard>,
-    next_player: usize,
+    curr_player: usize,
 }
 
 impl GameManager {
@@ -481,23 +537,28 @@ impl GameManager {
         GameManager {
             players: players,
             board: Box::new(board),
-            next_player: 0,
+            curr_player: 0,
         }
     }
 
+    fn current_player(&self) -> PlayerId {
+        self.curr_player as PlayerId
+    }
+
+    // start the next player's turn, return that player's ID
     fn next_player(&mut self) -> PlayerId {
-        let next = self.next_player as PlayerId;
-        self.next_player = (self.next_player + 1) % self.players.len();
-        next
+        self.curr_player = (self.curr_player + 1) % self.players.len();
+        self.curr_player as PlayerId
     }
 
     pub fn run(&mut self) {
-        let mut current_player = self.next_player();
+        let mut current_player = self.current_player();
 
         while !self.board.game_is_over() {
             if !self.board.player_is_defeated(current_player) {
                 let trade_reinf = self.process_trade(current_player);
                 self.process_reinforcement(current_player, trade_reinf);
+                self.process_attack(current_player);
             }
             current_player = self.next_player();
         }
@@ -532,14 +593,14 @@ impl GameManager {
     }
 
     pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: u8) {
-        let terrs = self.board.get_owned_territories(curr_id);
+        let owned = self.board.get_owned_territories(curr_id);
 
         // calculate reinf
         let reinf_amt = self.board.get_territory_reinforcements(curr_id) + trade_reinf;
 
         loop {
             let chosen_reinf = self.get_player(curr_id)
-                                   .distrib_reinforcements(curr_id, reinf_amt, &terrs[..]);
+                                   .distrib_reinforcements(curr_id, reinf_amt, &owned[..]);
             if self.verify_reinf(reinf_amt, &chosen_reinf) {
                 for (&terr, &reinf) in chosen_reinf.iter() {
                     if reinf > 0 {
@@ -553,6 +614,40 @@ impl GameManager {
                 println!("Invalid reinforcement chosen. Choose again.");
             }
         }
+    }
+
+    pub fn process_attack(&self, curr_id: PlayerId) {
+        // prompt the player for a sequence of attacks:
+        let owned = self.board.get_owned_territories(curr_id);
+
+        let mut attack_info = Vec::new();
+        for &terr in owned.iter() {
+            // for each territory get the list of adjacent enemy territories
+            attack_info.push(AttackTerritoryInfo {
+                id: terr,
+                armies: self.board.get_num_armies(terr),
+                adj_enemies: self.board.game_map()
+                                       .get_neighbors(terr)
+                                       .into_iter()
+                                       .filter(|&tid| self.board.get_owner(tid) != curr_id)
+                                       .collect(),
+            });
+        }
+
+        loop {
+            let chosen_attack = self.get_player(curr_id)
+                                    .make_attack(curr_id, &attack_info[..]);
+            match chosen_attack {
+                None => break,
+                Some(attack) => {
+                    if self.verify_attack(&attack) {
+                        // TODO: perform the attack
+                    }
+                }
+            }
+
+        }
+        unimplemented!()
     }
 
     fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
@@ -572,6 +667,13 @@ impl GameManager {
             }
         }
         total_amt == reinf_amt
+    }
+
+    fn verify_attack(&self, attack: &Attack) -> bool {
+        // if there are that many excess units on the origin territory
+        // and the target territory is actually an adjacent enemy
+        // then the attack is valid. otherwise, not.
+        unimplemented!()
     }
 
     fn get_player(&self, id: PlayerId) -> &Player {
