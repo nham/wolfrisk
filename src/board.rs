@@ -3,7 +3,7 @@ use petgraph::graph::NodeIndex;
 use rand::{self, Rng};
 use std::ops;
 
-use super::{PlayerId, TerritoryId, NUM_TERRITORIES};
+use super::{PlayerId, TerritoryId, NumArmies, NUM_TERRITORIES};
 
 // Game board: contains publically available game state
 //
@@ -16,7 +16,7 @@ use super::{PlayerId, TerritoryId, NUM_TERRITORIES};
 
 pub trait GameBoard {
     fn get_owner(&self, TerritoryId) -> PlayerId;
-    fn get_num_armies(&self, TerritoryId) -> u8;
+    fn get_num_armies(&self, TerritoryId) -> NumArmies;
     fn get_num_cards(&self, PlayerId) -> u8;
     fn get_num_owned_territories(&self, PlayerId) -> u8;
     fn get_owned_territories(&self, PlayerId) -> Vec<TerritoryId>;
@@ -25,9 +25,9 @@ pub trait GameBoard {
 
     // calculate to total number of reinforcements that a player will
     // receive from terrritories held and continent bonuses
-    fn get_territory_reinforcements(&self, player: PlayerId) -> u8;
+    fn get_territory_reinforcements(&self, player: PlayerId) -> NumArmies;
 
-    fn set_territory(&mut self, TerritoryId, PlayerId, u8);
+    fn set_territory(&mut self, TerritoryId, PlayerId, NumArmies);
     fn set_num_cards(&mut self, PlayerId, u8);
     fn game_is_over(&self) -> bool;
     fn player_is_defeated(&self, PlayerId) -> bool;
@@ -105,7 +105,7 @@ impl Continent {
     }
 }
 
-pub type GameBoardTerritories = [(PlayerId, u8); NUM_TERRITORIES];
+pub type GameBoardTerritories = [(PlayerId, NumArmies); NUM_TERRITORIES];
 
 // a standard Risk gameboard has 42 territories
 pub struct StandardGameBoard {
@@ -155,7 +155,7 @@ impl GameBoard for StandardGameBoard {
         self.territories[terr as usize].0
     }
 
-    fn get_num_armies(&self, terr: TerritoryId) -> u8 {
+    fn get_num_armies(&self, terr: TerritoryId) -> NumArmies {
         self.territories[terr as usize].1
     }
 
@@ -212,13 +212,13 @@ impl GameBoard for StandardGameBoard {
         true
     }
 
-    fn get_territory_reinforcements(&self, player: PlayerId) -> u8 {
+    fn get_territory_reinforcements(&self, player: PlayerId) -> NumArmies {
         let num_terr = self.get_num_owned_territories(player);
         let continent_bonuses = self.get_continent_bonuses(player);
-        num_terr + continent_bonuses
+        (num_terr + continent_bonuses) as NumArmies
     }
 
-    fn set_territory(&mut self, terr: TerritoryId, owner: PlayerId, num_armies: u8) {
+    fn set_territory(&mut self, terr: TerritoryId, owner: PlayerId, num_armies: NumArmies) {
         if owner as u8 > self.num_players {
             panic!("Error in `set_armies`: invalid player for owner");
         }

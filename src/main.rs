@@ -12,7 +12,7 @@ pub const NUM_TERRITORIES: usize = 42;
 
 pub type TerritoryId = u8;
 pub type PlayerId = u8;
-
+type NumArmies = u16;
 
 #[derive(Copy, Clone)]
 struct Trade {
@@ -73,18 +73,18 @@ enum Card {
 
 struct Reinforcement {
     player: PlayerId,
-    reinf: HashMap<TerritoryId, u8>,
+    reinf: HashMap<TerritoryId, NumArmies>,
 }
 
 impl Reinforcement {
-    fn new(player: PlayerId, reinf: HashMap<TerritoryId, u8>) -> Reinforcement {
+    fn new(player: PlayerId, reinf: HashMap<TerritoryId, NumArmies>) -> Reinforcement {
         Reinforcement {
             player: player,
             reinf: reinf,
         }
     }
 
-    fn iter(&self) -> std::collections::hash_map::Iter<TerritoryId, u8> {
+    fn iter(&self) -> std::collections::hash_map::Iter<TerritoryId, NumArmies> {
         self.reinf.iter()
     }
 
@@ -96,7 +96,7 @@ impl Reinforcement {
 
 struct AttackTerritoryInfo {
     pub id: TerritoryId,
-    pub armies: u8,
+    pub armies: NumArmies,
     pub adj_enemies: Vec<TerritoryId>,
 }
 
@@ -131,7 +131,7 @@ enum AttackAmount {
 
 impl AttackAmount {
     // assumes n != 0
-    fn max_from_u8(n: u8) -> AttackAmount {
+    fn max_from_num_armies(n: NumArmies) -> AttackAmount {
         if n >= 3 {
             AttackAmount::Three
         } else if n == 2 {
@@ -148,11 +148,11 @@ type Move = ();
 trait Player {
     // called at the beginning of the turn, prompts the player to turn in a Risk
     // set.
-    fn make_trade(&self, other_reinf: u8, necessary: bool) -> Option<Trade>;
+    fn make_trade(&self, other_reinf: NumArmies, necessary: bool) -> Option<Trade>;
 
     // called after a potential Risk set trade, prompts the player to distribute
     // available reinforcements
-    fn distrib_reinforcements(&self, PlayerId, u8, &[TerritoryId]) -> Reinforcement;
+    fn distrib_reinforcements(&self, PlayerId, NumArmies, &[TerritoryId]) -> Reinforcement;
 
     // called after reinforcements are distributed, prompts player to make an attack
     // takes a slice where each element is an information data structure corresponding
@@ -205,7 +205,7 @@ impl RandomPlayer {
 }
 
 impl Player for RandomPlayer {
-    fn make_trade(&self, other_reinf: u8, necessary: bool) -> Option<Trade> {
+    fn make_trade(&self, other_reinf: NumArmies, necessary: bool) -> Option<Trade> {
         // if necessary or not necessary but a random roll exceeded k for some k in [0, 1]
         // then we make a trade. Identify all of the sets and pick one at
         // random.
@@ -237,7 +237,7 @@ impl Player for RandomPlayer {
 
     fn distrib_reinforcements(&self,
                               player: PlayerId,
-                              reinf: u8,
+                              reinf: NumArmies,
                               owned: &[TerritoryId])
                               -> Reinforcement {
         let mut terr_reinf = HashMap::new();
@@ -262,7 +262,7 @@ impl Player for RandomPlayer {
                     return Some(Attack::new(player,
                                             info.id,
                                             defender,
-                                            AttackAmount::max_from_u8(info.armies - 1)));
+                                            AttackAmount::max_from_num_armies(info.armies - 1)));
                 }
             }
         }
@@ -333,7 +333,7 @@ impl GameManager {
     }
 
     // returns the number of extra reinforcements resulting from trading cards in
-    pub fn process_trade(&self, current_id: PlayerId) -> u8 {
+    pub fn process_trade(&self, current_id: PlayerId) -> NumArmies {
         if self.board.get_num_cards(current_id) > 2 {
             let current_player = self.get_player(current_id);
             let trade_necessary = self.board.get_num_cards(current_id) > 4;
@@ -360,7 +360,7 @@ impl GameManager {
         0
     }
 
-    pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: u8) {
+    pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: NumArmies) {
         let owned = self.board.get_owned_territories(curr_id);
 
         // calculate reinf
@@ -410,12 +410,13 @@ impl GameManager {
                 Some(attack) => {
                     if self.verify_attack(&attack) {
                         // TODO: perform the attack
+                        // if successful, conquered_one = true
+                        unimplemented!()
                     }
                 }
             }
 
         }
-        unimplemented!()
     }
 
     fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
@@ -426,7 +427,7 @@ impl GameManager {
         }
     }
 
-    fn verify_reinf(&self, reinf_amt: u8, reinf: &Reinforcement) -> bool {
+    fn verify_reinf(&self, reinf_amt: NumArmies, reinf: &Reinforcement) -> bool {
         let mut total_amt = 0;
         for (&terr, &amt) in reinf.iter() {
             total_amt += amt;
