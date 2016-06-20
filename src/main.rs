@@ -384,10 +384,7 @@ impl GameManager {
         }
     }
 
-    pub fn process_attack(&self, curr_id: PlayerId) {
-        // prompt the player for a sequence of attacks:
-        let owned = self.board.get_owned_territories(curr_id);
-
+    fn generate_adj_enemy_info(&self, curr_id: PlayerId, owned: &[TerritoryId]) -> Vec<AttackTerritoryInfo> {
         let mut attack_info = Vec::new();
         for &terr in owned.iter() {
             // for each territory get the list of adjacent enemy territories
@@ -401,6 +398,15 @@ impl GameManager {
                                        .collect(),
             });
         }
+        attack_info
+    }
+
+    pub fn process_attack(&self, curr_id: PlayerId) {
+        // prompt the player for a sequence of attacks:
+        let owned = self.board.get_owned_territories(curr_id);
+        let attack_info = self.generate_adj_enemy_info(curr_id, &owned[..]);
+
+        let mut conquered_one = false;
 
         loop {
             let chosen_attack = self.get_player(curr_id)
