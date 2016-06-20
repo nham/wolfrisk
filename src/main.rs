@@ -320,9 +320,11 @@ impl Deck {
         let offset = rand::thread_rng().gen_range(0, 3);
         for i in 0..42 {
             cards.push(Card::Territory(i as TerritoryId,
-                                       CardSymbol::from_usize((i + offset) % 3).unwrap() ))
+                                       CardSymbol::from_usize((i + offset) % 3).unwrap()))
         }
-        for _ in 0..2 { cards.push(Card::Wild); }
+        for _ in 0..2 {
+            cards.push(Card::Wild);
+        }
         Deck::new(cards)
     }
 
@@ -378,11 +380,20 @@ impl GameManager {
         self.log_starting_game();
         let mut current_player = self.current_player();
 
+        const MAX_NUM_TURNS: usize = 100;
+        let mut turn = 0;
+
         while !self.board.game_is_over() {
             if !self.board.player_is_defeated(current_player) {
+                turn += 1;
                 let trade_reinf = self.process_trade(current_player);
                 self.process_reinforcement(current_player, trade_reinf);
                 self.process_attack(current_player);
+
+                if turn >= MAX_NUM_TURNS {
+                    println!("MAX_NUM_TURNS exceeded, terminating game");
+                    break;
+                }
             }
             current_player = self.next_player();
         }
@@ -430,6 +441,9 @@ impl GameManager {
         // calculate reinf
         let reinf_amt = self.board.get_territory_reinforcements(curr_id) + trade_reinf;
 
+        println!("\nPlayer {} is distributing {} reinforcements", curr_id, reinf_amt);
+        println!("==========");
+
         loop {
             let chosen_reinf = self.get_player(curr_id)
                                    .distrib_reinforcements(curr_id, reinf_amt, &owned[..]);
@@ -439,6 +453,10 @@ impl GameManager {
                         let owner = self.board.get_owner(terr);
                         let num_armies = self.board.get_num_armies(terr);
                         self.board.set_territory(terr, owner, num_armies + reinf);
+                        println!("  territory {} gained {} units (now {} in total)",
+                                 terr,
+                                 reinf,
+                                 self.board.get_num_armies(terr));
                     }
                 }
                 break;
@@ -448,7 +466,10 @@ impl GameManager {
         }
     }
 
-    fn generate_adj_enemy_info(&self, curr_id: PlayerId, owned: &[TerritoryId]) -> Vec<AttackTerritoryInfo> {
+    fn generate_adj_enemy_info(&self,
+                               curr_id: PlayerId,
+                               owned: &[TerritoryId])
+                               -> Vec<AttackTerritoryInfo> {
         let mut attack_info = Vec::new();
         for &terr in owned.iter() {
             // for each territory get the list of adjacent enemy territories

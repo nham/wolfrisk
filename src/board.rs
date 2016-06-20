@@ -124,7 +124,7 @@ impl StandardGameBoard {
             map: standard_map(),
         }
     }
-    
+
     pub fn randomly_distributed(num_players: u8) -> StandardGameBoard {
         StandardGameBoard::new(num_players,
                                StandardGameBoard::distrib_terr_randomly(num_players))
@@ -213,9 +213,10 @@ impl GameBoard for StandardGameBoard {
     }
 
     fn get_territory_reinforcements(&self, player: PlayerId) -> NumArmies {
+        use std::cmp::max;
         let num_terr = self.get_num_owned_territories(player);
         let continent_bonuses = self.get_continent_bonuses(player);
-        (num_terr + continent_bonuses) as NumArmies
+        (max((num_terr % 3), 3) + continent_bonuses) as NumArmies
     }
 
     fn set_territory(&mut self, terr: TerritoryId, owner: PlayerId, num_armies: NumArmies) {
@@ -257,4 +258,3 @@ impl GameBoard for StandardGameBoard {
         &self.map
     }
 }
-
