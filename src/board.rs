@@ -9,7 +9,7 @@ use super::{PlayerId, TerritoryId, NumArmies, NUM_TERRITORIES};
 //
 //    a) the owner of each territory
 //    b) how many occupying armies on each territory
-//    c) how many risk cards each player has
+//    c) how many cards each player has
 //
 // The data structure representing the game board should supply
 // methods for changing the board state.
@@ -63,7 +63,7 @@ impl GameMap for TerritoryGraph {
     }
 }
 
-pub fn standard_risk_map() -> TerritoryGraph {
+pub fn standard_map() -> TerritoryGraph {
     // TODO: correct number of edges
     let mut graph = TerritoryGraph::with_capacity(42, 100);
     // let mut graph = Graph::new_undirected();
@@ -121,7 +121,7 @@ impl StandardGameBoard {
             num_players: num_players,
             territories: territories,
             num_cards: vec![0; num_players as usize],
-            map: standard_risk_map(),
+            map: standard_map(),
         }
     }
     

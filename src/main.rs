@@ -57,14 +57,25 @@ impl Trade {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum CardSymbol {
     Infantry,
     Cavalry,
     Artillery,
 }
 
-#[derive(Copy, Clone)]
+impl CardSymbol {
+    fn from_usize(x: usize) -> Option<CardSymbol> {
+        match x {
+            0 => Some(CardSymbol::Infantry),
+            1 => Some(CardSymbol::Cavalry),
+            2 => Some(CardSymbol::Artillery),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 enum Card {
     Territory(TerritoryId, CardSymbol),
     Wild,
@@ -146,11 +157,10 @@ impl AttackAmount {
 type Move = ();
 
 trait Player {
-    // called at the beginning of the turn, prompts the player to turn in a Risk
-    // set.
+    // called at the beginning of the turn, prompts the player to turn in a set
     fn make_trade(&self, other_reinf: NumArmies, necessary: bool) -> Option<Trade>;
 
-    // called after a potential Risk set trade, prompts the player to distribute
+    // called after a potential set trade, prompts the player to distribute
     // available reinforcements
     fn distrib_reinforcements(&self, PlayerId, NumArmies, &[TerritoryId]) -> Reinforcement;
 
@@ -291,9 +301,53 @@ impl Player for RandomPlayer {
 }
 
 
+// should this be a trait instead or is that overkill?
+struct Deck {
+    available: Vec<Card>,
+    discarded: Vec<Card>,
+}
+
+impl Deck {
+    pub fn new(cards: Vec<Card>) -> Deck {
+        Deck {
+            available: cards,
+            discarded: Vec::new(),
+        }
+    }
+
+    pub fn standard_deck() -> Deck {
+        let mut cards = Vec::new();
+        let offset = rand::thread_rng().gen_range(0, 3);
+        for i in 0..42 {
+            cards.push(Card::Territory(i as TerritoryId,
+                                       CardSymbol::from_usize((i + offset) % 3).unwrap() ))
+        }
+        for _ in 0..2 { cards.push(Card::Wild); }
+        Deck::new(cards)
+    }
+
+    pub fn discard(&mut self, card: Card) {
+        unimplemented!()
+    }
+
+    pub fn draw_random(&mut self) -> Card {
+        unimplemented!()
+    }
+
+    pub fn get_available(&self) -> &[Card] {
+        &self.available[..]
+    }
+}
+
+
 struct GameManager {
     players: Vec<Box<Player>>,
     board: Box<GameBoard>,
+
+    // the cards available to be given to a player who conquers a territory in
+    // their turn
+    cards: Deck,
+
     curr_player: usize,
 }
 
@@ -305,6 +359,7 @@ impl GameManager {
         GameManager {
             players: players,
             board: Box::new(board),
+            cards: Deck::standard_deck(),
             curr_player: 0,
         }
     }
@@ -320,6 +375,7 @@ impl GameManager {
     }
 
     pub fn run(&mut self) {
+        self.log_starting_game();
         let mut current_player = self.current_player();
 
         while !self.board.game_is_over() {
@@ -329,6 +385,14 @@ impl GameManager {
                 self.process_attack(current_player);
             }
             current_player = self.next_player();
+        }
+    }
+
+    pub fn log_starting_game(&self) {
+        println!("Starting a game with {} players.", self.players.len());
+        println!("Deck:");
+        for card in self.cards.get_available() {
+            println!("Card: {:?}", card);
         }
     }
 
@@ -422,6 +486,11 @@ impl GameManager {
                 }
             }
 
+        }
+
+        if conquered_one {
+            // TODO: give a random card to the player
+            unimplemented!()
         }
     }
 
