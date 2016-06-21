@@ -14,6 +14,24 @@ pub type TerritoryId = u8;
 pub type PlayerId = u8;
 type NumArmies = u16;
 
+
+fn attacking_allowed(pool: NumArmies) -> NumArmies {
+    max_allowed(3, pool)
+}
+
+fn defending_allowed(pool: NumArmies) -> NumArmies {
+    max_allowed(2, pool)
+}
+
+// given `max` and `pool`, returns min(`max`, `pool`)
+fn max_allowed(max: NumArmies, pool: NumArmies) -> NumArmies {
+    if pool > max {
+        max
+    } else {
+        pool
+    }
+}
+
 #[derive(Copy, Clone)]
 struct Trade {
     cards: [Card; 3],
@@ -111,40 +129,20 @@ struct Attack {
     pub attacker: PlayerId,
     pub origin: TerritoryId,
     pub target: TerritoryId,
-    pub amount: AttackAmount,
+    pub amount_attacking: NumArmies,
 }
 
 impl Attack {
     fn new(attacker: PlayerId,
            origin: TerritoryId,
            target: TerritoryId,
-           amount: AttackAmount)
+           amount_attacking: NumArmies)
            -> Attack {
         Attack {
             attacker: attacker,
             origin: origin,
             target: target,
-            amount: amount,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-enum AttackAmount {
-    One = 1,
-    Two = 2,
-    Three = 3,
-}
-
-impl AttackAmount {
-    // assumes n != 0
-    fn max_from_num_armies(n: NumArmies) -> AttackAmount {
-        if n >= 3 {
-            AttackAmount::Three
-        } else if n == 2 {
-            AttackAmount::Two
-        } else {
-            AttackAmount::One
+            amount_attacking: amount_attacking,
         }
     }
 }
@@ -265,10 +263,12 @@ impl Player for RandomPlayer {
                 if x >= self.param_attack {
                     let rand_idx = rand::thread_rng().gen_range(0, info.adj_enemies.len());
                     let defender = info.adj_enemies[rand_idx];
+                    // TODO: this always takes the max amount that can be attacked with
+                    // should it be something different?
                     return Some(Attack::new(player,
                                             info.id,
                                             defender,
-                                            AttackAmount::max_from_num_armies(info.armies - 1)));
+                                            attacking_allowed(info.armies - 1)));
                 }
             }
         }
@@ -338,6 +338,26 @@ impl Deck {
 }
 
 
+// odds from https://www.kent.ac.uk/smsas/personal/odl/riskfaq.htm#3.2
+fn one_rolled_1(attacker: NumArmies, defender: NumArmies) -> Option<[f64; 2]> {
+    match (attacker, defender) {
+        (1, 1) => Some([0.5833, 0.4167]),
+        (2, 1) => Some([0.4213, 0.5787]),
+        (3, 1) => Some([0.3403, 0.6597]),
+        (1, 2) => Some([0.7454, 0.2546]),
+        _ => None
+    }
+}
+
+// odds from https://www.kent.ac.uk/smsas/personal/odl/riskfaq.htm#3.2
+fn both_rolled_at_least_2(attacker: NumArmies, defender: NumArmies) -> Option<[f64; 3]> {
+    match (attacker, defender) {
+        (2, 2) => Some([0.4483, 0.2276, 0.3241]),
+        (3, 2) => Some([0.2926, 0.3717, 0.3358]),
+        _ => None
+    }
+}
+
 struct GameManager {
     players: Vec<Box<Player>>,
     board: Box<GameBoard>,
@@ -376,7 +396,7 @@ impl GameManager {
         self.log_starting_game();
         let mut current_player = self.current_player();
 
-        const MAX_NUM_TURNS: usize = 100;
+        const MAX_NUM_TURNS: usize = 60;
         let mut turn = 0;
 
         while !self.board.game_is_over() {
@@ -495,6 +515,11 @@ impl GameManager {
             match chosen_attack {
                 None => break,
                 Some(attack) => {
+                    println!("Player {} is attacking with {} from {} to {}",
+                             attack.attacker,
+                             attack.amount_attacking,
+                             attack.origin,
+                             attack.target);
                     if self.verify_attack(&attack) {
                         self.perform_attack(&attack);
                         // TODO: perform the attack
@@ -514,8 +539,50 @@ impl GameManager {
         }
     }
 
+    // this function is called once the proposed attack has been verified
+    // to be a valid attack
     fn perform_attack(&mut self, attack: &Attack) {
-        unimplemented!()
+        let num_enemy_armies = self.board.get_num_armies(attack.target);
+        let amount_defending = defending_allowed(num_enemy_armies);
+        let amount_attacking = attack.amount_attacking;
+
+        // we are not rolling any dice here, we are just going to use
+        // a uniform randomly variable and the probability tables
+        let roll = rand::thread_rng().gen_range(0., 1.);
+
+        let outcome: (NumArmies, NumArmies) =
+            if amount_defending == 1 || amount_attacking == 1 {
+                let dist = one_rolled_1(amount_attacking, amount_defending).unwrap();
+                if roll <= dist[0] {
+                    // attacker loses 1
+                    (1, 0)
+                } else {
+                    // defender loses 1
+                    (0, 1)
+                }
+            } else {
+                let dist = both_rolled_at_least_2(amount_attacking, amount_defending).unwrap();
+                if roll <= dist[0] {
+                    // attacker loses 2
+                    (2, 0)
+                } else if roll > dist[0] && roll <= (dist[0] + dist[1]) {
+                    // defender loses 2
+                    (0, 2)
+                } else {
+                    // both lose 1
+                    (1, 1)
+                }
+            };
+
+        if outcome.0 > 0 {
+            self.board.remove_armies(attack.origin, outcome.0);
+            println!("Territory {} lost {} units in battle", attack.origin, outcome.0);
+        }
+
+        if outcome.1 > 0 {
+            self.board.remove_armies(attack.target, outcome.1);
+            println!("Territory {} lost {} units in battle", attack.target, outcome.1);
+        }
     }
 
     fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
@@ -543,7 +610,7 @@ impl GameManager {
         // then the attack is valid. otherwise, not.
         let can_attack_with = self.board.get_num_armies(attack.origin) - 1;
         self.board.get_owner(attack.origin) == attack.attacker
-            && can_attack_with >= (attack.amount as NumArmies)
+            && can_attack_with >= attack.amount_attacking
             && self.board.game_map().are_adjacent(attack.origin, attack.target)
             && self.board.is_enemy_territory(attack.attacker, attack.target)
     }

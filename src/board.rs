@@ -38,6 +38,17 @@ pub trait GameBoard {
     fn is_enemy_territory(&self, player: PlayerId, tid: TerritoryId) -> bool {
         self.get_owner(tid) != player
     }
+
+    fn remove_armies(&mut self, tid: TerritoryId, remove: NumArmies) {
+        let num_armies = self.get_num_armies(tid);
+
+        if remove > num_armies {
+            panic!("Cannot remove more armies than exist on territory {}", tid);
+        }
+
+        let owner = self.get_owner(tid);
+        self.set_territory(tid, owner, num_armies - remove);
+    }
 }
 
 pub trait GameMap {
