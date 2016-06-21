@@ -101,14 +101,12 @@ enum Card {
 
 
 struct Reinforcement {
-    pub player: PlayerId,
     reinf: HashMap<TerritoryId, NumArmies>,
 }
 
 impl Reinforcement {
-    fn new(player: PlayerId, reinf: HashMap<TerritoryId, NumArmies>) -> Reinforcement {
+    fn new(reinf: HashMap<TerritoryId, NumArmies>) -> Reinforcement {
         Reinforcement {
-            player: player,
             reinf: reinf,
         }
     }
@@ -128,20 +126,17 @@ struct AttackTerritoryInfo {
 type AttackTerritories = HashMap<TerritoryId, AttackTerritoryInfo>;
 
 struct Attack {
-    pub attacker: PlayerId,
     pub origin: TerritoryId,
     pub target: TerritoryId,
     pub amount_attacking: NumArmies,
 }
 
 impl Attack {
-    fn new(attacker: PlayerId,
-           origin: TerritoryId,
+    fn new(origin: TerritoryId,
            target: TerritoryId,
            amount_attacking: NumArmies)
            -> Attack {
         Attack {
-            attacker: attacker,
             origin: origin,
             target: target,
             amount_attacking: amount_attacking,
@@ -158,12 +153,12 @@ trait Player {
 
     // called after a potential set trade, prompts the player to distribute
     // available reinforcements
-    fn distrib_reinforcements(&self, PlayerId, NumArmies, &[TerritoryId]) -> Reinforcement;
+    fn distrib_reinforcements(&self, NumArmies, &[TerritoryId]) -> Reinforcement;
 
     // called after reinforcements are distributed, prompts player to make an attack
     // takes a slice where each element is an information data structure corresponding
     // to one of the territories that the player owns.
-    fn make_attack(&self, PlayerId, &AttackTerritories) -> Option<Attack>;
+    fn make_attack(&self, &AttackTerritories) -> Option<Attack>;
 
     // called if an attack succeeds. prompts the player to move available armies
     // from the attacking territory to the newly occupied territory
@@ -246,7 +241,6 @@ impl Player for RandomPlayer {
     }
 
     fn distrib_reinforcements(&self,
-                              player: PlayerId,
                               reinf: NumArmies,
                               owned: &[TerritoryId])
                               -> Reinforcement {
@@ -259,10 +253,10 @@ impl Player for RandomPlayer {
             *amt += 1;
         }
 
-        Reinforcement::new(player, terr_reinf)
+        Reinforcement::new(terr_reinf)
     }
 
-    fn make_attack(&self, player: PlayerId, terr_info: &AttackTerritories) -> Option<Attack> {
+    fn make_attack(&self, terr_info: &AttackTerritories) -> Option<Attack> {
         for info in terr_info.values() {
             if info.armies > 1 && info.adj_enemies.len() > 0 {
                 let x = rand::thread_rng().gen_range(0., 1.);
@@ -271,8 +265,7 @@ impl Player for RandomPlayer {
                     let defender = info.adj_enemies[rand_idx];
                     // TODO: this always takes the max amount that can be attacked with
                     // should it be something different?
-                    return Some(Attack::new(player,
-                                            info.id,
+                    return Some(Attack::new(info.id,
                                             defender,
                                             attacking_allowed(info.armies - 1)));
                 }
@@ -331,7 +324,7 @@ impl Deck {
     }
 
     pub fn discard(&mut self, card: Card) {
-        unimplemented!()
+        self.discarded.push(card);
     }
 
     pub fn draw_random(&mut self) -> Card {
@@ -431,31 +424,43 @@ impl GameManager {
     }
 
     // returns the number of extra reinforcements resulting from trading cards in
-    pub fn process_trade(&self, current_id: PlayerId) -> NumArmies {
-        if self.board.get_num_cards(current_id) > 2 {
-            let current_player = self.get_player(current_id);
-            let trade_necessary = self.board.get_num_cards(current_id) > 4;
-            let terr_reinf = self.board.get_territory_reinforcements(current_id);
-
-            let mut reinf = 0;
-            loop {
-                let chosen_trade = current_player.make_trade(terr_reinf, trade_necessary);
-                if self.verify_trade(chosen_trade, trade_necessary) {
-                    if chosen_trade.is_some() {
-                        // TODO: carry out trade
-                        // reinf += reinforcements from carrying out the trade-in
-                    }
-
-                    if self.board.get_num_cards(current_id) < 5 {
-                        break;
-                    }
-                } else {
-                    println!("Invalid trade chosen. Choose again.");
-                }
-            }
-            return reinf;
+    // isn't this wrong? aren't there two different behaviors? if you are at the beginning
+    // of a turn, you can turn in as many as you want
+    // but during an attack you must turn in only until you have > 5, then you have to stop
+    fn process_trade(&mut self, current_id: PlayerId) -> NumArmies {
+        if self.board.get_num_cards(current_id) < 3 {
+            return 0;
         }
-        0
+
+        let trade_necessary = self.board.get_num_cards(current_id) > 4;
+        let terr_reinf = self.board.get_territory_reinforcements(current_id);
+
+        let mut reinf = 0;
+        loop {
+            let chosen_trade = self.get_player(current_id)
+                                   .make_trade(terr_reinf, trade_necessary);
+            if self.verify_trade(current_id, chosen_trade, trade_necessary) {
+                match chosen_trade {
+                    Some(trade) => {
+                        reinf += self.perform_trade(trade);
+                    },
+                    None => {},
+                }
+
+                if self.board.get_num_cards(current_id) < 3 {
+                    break;
+                }
+
+            } else {
+                println!("Invalid trade chosen. Choose again.");
+            }
+        }
+        reinf
+    }
+
+    // returns the number of bonus armies granted by the trade-in
+    fn perform_trade(&mut self, trade: Trade) -> NumArmies {
+        unimplemented!()
     }
 
     pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: NumArmies) {
@@ -469,8 +474,8 @@ impl GameManager {
 
         loop {
             let chosen_reinf = self.get_player(curr_id)
-                                   .distrib_reinforcements(curr_id, reinf_amt, &owned[..]);
-            if self.verify_reinf(reinf_amt, &chosen_reinf) {
+                                   .distrib_reinforcements(reinf_amt, &owned[..]);
+            if self.verify_reinf(curr_id, reinf_amt, &chosen_reinf) {
                 for (&terr, &reinf) in chosen_reinf.iter() {
                     if reinf > 0 {
                         let owner = self.board.get_owner(terr);
@@ -520,17 +525,16 @@ impl GameManager {
         let mut conquered_one = false;
 
         loop {
-            let chosen_attack = self.get_player(curr_id)
-                                    .make_attack(curr_id, &attack_info);
+            let chosen_attack = self.get_player(curr_id).make_attack(&attack_info);
             match chosen_attack {
                 None => break,
                 Some(attack) => {
                     println!("Player {} is attacking with {} from {} to {}",
-                             attack.attacker,
+                             curr_id,
                              attack.amount_attacking,
                              attack.origin,
                              attack.target);
-                    if self.verify_battle(&attack) {
+                    if self.verify_battle(curr_id, &attack) {
                         let conquered = self.perform_battle(&attack);
 
                         // update attack_info
@@ -631,7 +635,7 @@ impl GameManager {
         }
     }
 
-    fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
+    fn verify_trade(&self, player: PlayerId, trade: Option<Trade>, necessary: bool) -> bool {
         // TODO: verify that player owns each card it's trying to trade in?
         match trade {
             None => !necessary,
@@ -639,26 +643,26 @@ impl GameManager {
         }
     }
 
-    fn verify_reinf(&self, reinf_amt: NumArmies, reinf: &Reinforcement) -> bool {
+    fn verify_reinf(&self, player: PlayerId, reinf_amt: NumArmies, reinf: &Reinforcement) -> bool {
         let mut total_amt = 0;
         for (&terr, &amt) in reinf.iter() {
             total_amt += amt;
-            if self.board.is_enemy_territory(reinf.player, terr) {
+            if self.board.is_enemy_territory(player, terr) {
                 return false;
             }
         }
         total_amt == reinf_amt
     }
 
-    fn verify_battle(&self, attack: &Attack) -> bool {
+    fn verify_battle(&self, player: PlayerId, attack: &Attack) -> bool {
         // if there are that many excess units on the origin territory
         // and the target territory is actually an adjacent enemy
         // then the attack is valid. otherwise, not.
         let can_attack_with = self.board.get_num_armies(attack.origin) - 1;
-        self.board.get_owner(attack.origin) == attack.attacker
+        self.board.get_owner(attack.origin) == player
             && can_attack_with >= attack.amount_attacking
             && self.board.game_map().are_adjacent(attack.origin, attack.target)
-            && self.board.is_enemy_territory(attack.attacker, attack.target)
+            && self.board.is_enemy_territory(player, attack.target)
     }
 
     fn get_player(&self, id: PlayerId) -> &Player {
