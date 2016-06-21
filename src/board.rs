@@ -85,8 +85,7 @@ impl GameMap for TerritoryGraph {
 }
 
 pub fn standard_map() -> TerritoryGraph {
-    // TODO: correct number of edges
-    let mut graph = TerritoryGraph::with_capacity(42, 100);
+    let mut graph = TerritoryGraph::with_capacity(42, 82);
     let mut indices = Vec::new();
     for _ in 0..(NUM_TERRITORIES as TerritoryId) {
         indices.push( graph.add_node(()) );
@@ -245,8 +244,8 @@ impl StandardTerritory {
         use self::StandardTerritory::*;
         match *self {
             Congo => vec![EastAfrica, NorthAfrica, SouthAfrica],
-            EastAfrica => vec![Congo, Egypt, Madagascar, NorthAfrica, MiddleEast],
-            Egypt => vec![EastAfrica, NorthAfrica, SouthernEurope],
+            EastAfrica => vec![Congo, Egypt, Madagascar, NorthAfrica, SouthAfrica, MiddleEast],
+            Egypt => vec![EastAfrica, NorthAfrica, SouthernEurope, MiddleEast],
             Madagascar => vec![EastAfrica, SouthAfrica],
             NorthAfrica => vec![Congo, EastAfrica, Egypt, SouthernEurope, WesternEurope, Brazil],
             SouthAfrica => vec![Congo, EastAfrica, Madagascar],
@@ -256,7 +255,7 @@ impl StandardTerritory {
             India => vec![Afghanistan, China, MiddleEast, Siam],
             Irkutsk => vec![Kamchatka, Mongolia, Siberia, Yakutsk],
             Japan => vec![Kamchatka, Mongolia],
-            Kamchatka => vec![Irkutsk, Japan, Yakutsk, Alaska],
+            Kamchatka => vec![Irkutsk, Japan, Mongolia, Yakutsk, Alaska],
             MiddleEast => vec![EastAfrica, Egypt, Afghanistan, India, SouthernEurope, Ukraine],
             Mongolia => vec![China, Irkutsk, Japan, Kamchatka, Siberia],
             Siam => vec![China, India, Indonesia],

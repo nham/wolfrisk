@@ -125,6 +125,8 @@ struct AttackTerritoryInfo {
     pub adj_enemies: Vec<TerritoryId>,
 }
 
+type AttackTerritories = HashMap<TerritoryId, AttackTerritoryInfo>;
+
 struct Attack {
     pub attacker: PlayerId,
     pub origin: TerritoryId,
@@ -161,7 +163,7 @@ trait Player {
     // called after reinforcements are distributed, prompts player to make an attack
     // takes a slice where each element is an information data structure corresponding
     // to one of the territories that the player owns.
-    fn make_attack(&self, PlayerId, &[AttackTerritoryInfo]) -> Option<Attack>;
+    fn make_attack(&self, PlayerId, &AttackTerritories) -> Option<Attack>;
 
     // called if an attack succeeds. prompts the player to move available armies
     // from the attacking territory to the newly occupied territory
@@ -260,8 +262,8 @@ impl Player for RandomPlayer {
         Reinforcement::new(player, terr_reinf)
     }
 
-    fn make_attack(&self, player: PlayerId, terr_info: &[AttackTerritoryInfo]) -> Option<Attack> {
-        for info in terr_info.iter() {
+    fn make_attack(&self, player: PlayerId, terr_info: &AttackTerritories) -> Option<Attack> {
+        for info in terr_info.values() {
             if info.armies > 1 && info.adj_enemies.len() > 0 {
                 let x = rand::thread_rng().gen_range(0., 1.);
                 if x >= self.param_attack {
@@ -401,7 +403,7 @@ impl GameManager {
         self.log_starting_game();
         let mut current_player = self.current_player();
 
-        const MAX_NUM_TURNS: usize = 60;
+        const MAX_NUM_TURNS: usize = 10;
         let mut turn = 0;
 
         while !self.board.game_is_over() {
@@ -510,13 +512,16 @@ impl GameManager {
     pub fn process_attack(&mut self, curr_id: PlayerId) {
         // prompt the player for a sequence of attacks:
         let owned = self.board.get_owned_territories(curr_id);
-        let attack_info = self.generate_adj_enemy_info(curr_id, &owned[..]);
+        let mut attack_info = HashMap::new();
+        for info in self.generate_adj_enemy_info(curr_id, &owned[..]).into_iter() {
+            attack_info.insert(info.id, info);
+        }
 
         let mut conquered_one = false;
 
         loop {
             let chosen_attack = self.get_player(curr_id)
-                                    .make_attack(curr_id, &attack_info[..]);
+                                    .make_attack(curr_id, &attack_info);
             match chosen_attack {
                 None => break,
                 Some(attack) => {
@@ -527,8 +532,29 @@ impl GameManager {
                              attack.target);
                     if self.verify_battle(&attack) {
                         let conquered = self.perform_battle(&attack);
+
+                        // update attack_info
+                        if self.board.get_num_armies(attack.origin) == 1 {
+                            attack_info.remove(&attack.origin);
+                        } else {
+                            let origin = attack_info.get_mut(&attack.origin).unwrap();
+                            origin.armies = self.board.get_num_armies(attack.origin);
+                        }
+
                         if conquered {
                             conquered_one = true;
+                            // update attack_info
+                            for (_, info) in attack_info.iter_mut() {
+                                let mut conquered_ind = None;
+                                for i in 0..info.adj_enemies.len() {
+                                    if info.adj_enemies[i] == attack.target {
+                                        conquered_ind = Some(i);
+                                    }
+                                }
+                                if let Some(ind) = conquered_ind {
+                                    info.adj_enemies.remove(ind);
+                                }
+                            }
                         }
                     } else {
                         println!("Attack chosen is invalid. Choose again");
@@ -539,8 +565,8 @@ impl GameManager {
         }
 
         if conquered_one {
-            // TODO: give a random card to the player
-            unimplemented!()
+            let random_card = self.cards.draw_random();
+            self.give_card_to_player(curr_id, random_card);
         }
     }
 
@@ -637,6 +663,11 @@ impl GameManager {
 
     fn get_player(&self, id: PlayerId) -> &Player {
         self.players[id as usize].as_ref()
+    }
+
+    fn give_card_to_player(&mut self, id: PlayerId, card: Card) {
+        println!("Player {} received card {:?}", id, card);
+        self.players[id as usize].add_card(card);
     }
 }
 
