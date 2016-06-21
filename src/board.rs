@@ -34,6 +34,10 @@ pub trait GameBoard {
 
     // A GameBoard has an underlying GameMap
     fn game_map(&self) -> &GameMap;
+
+    fn is_enemy_territory(&self, player: PlayerId, tid: TerritoryId) -> bool {
+        self.get_owner(tid) != player
+    }
 }
 
 pub trait GameMap {

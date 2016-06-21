@@ -112,10 +112,10 @@ struct AttackTerritoryInfo {
 }
 
 struct Attack {
-    attacker: PlayerId,
-    origin: TerritoryId,
-    target: TerritoryId,
-    amount: AttackAmount,
+    pub attacker: PlayerId,
+    pub origin: TerritoryId,
+    pub target: TerritoryId,
+    pub amount: AttackAmount,
 }
 
 impl Attack {
@@ -135,9 +135,9 @@ impl Attack {
 
 #[derive(Copy, Clone)]
 enum AttackAmount {
-    One,
-    Two,
-    Three,
+    One = 1,
+    Two = 2,
+    Three = 3,
 }
 
 impl AttackAmount {
@@ -479,7 +479,7 @@ impl GameManager {
                 adj_enemies: self.board.game_map()
                                        .get_neighbors(terr)
                                        .into_iter()
-                                       .filter(|&tid| self.board.get_owner(tid) != curr_id)
+                                       .filter(|&tid| self.board.is_enemy_territory(curr_id, tid))
                                        .collect(),
             });
         }
@@ -501,8 +501,10 @@ impl GameManager {
                 Some(attack) => {
                     if self.verify_attack(&attack) {
                         // TODO: perform the attack
-                        // if successful, conquered_one = true
+                        // if all enemies were eliminated, conquered_one = true
                         unimplemented!()
+                    } else {
+                        println!("Attack chosen is invalid. Choose again");
                     }
                 }
             }
@@ -527,7 +529,7 @@ impl GameManager {
         let mut total_amt = 0;
         for (&terr, &amt) in reinf.iter() {
             total_amt += amt;
-            if self.board.get_owner(terr) != reinf.player() {
+            if self.board.is_enemy_territory(reinf.player(), terr) {
                 return false;
             }
         }
@@ -538,7 +540,11 @@ impl GameManager {
         // if there are that many excess units on the origin territory
         // and the target territory is actually an adjacent enemy
         // then the attack is valid. otherwise, not.
-        unimplemented!()
+        let can_attack_with = self.board.get_num_armies(attack.origin) - 1;
+        self.board.get_owner(attack.origin) == attack.attacker
+            && can_attack_with >= (attack.amount as NumArmies)
+            && self.board.game_map().are_adjacent(attack.origin, attack.target)
+            && self.board.is_enemy_territory(attack.attacker, attack.target)
     }
 
     fn get_player(&self, id: PlayerId) -> &Player {
