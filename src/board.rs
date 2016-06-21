@@ -56,7 +56,7 @@ pub trait GameMap {
     fn get_neighbors(&self, TerritoryId) -> Vec<TerritoryId>;
 }
 
-pub type TerritoryGraph = Graph<(PlayerId, u8), (), Undirected, TerritoryId>;
+pub type TerritoryGraph = Graph<(), (), Undirected, TerritoryId>;
 
 impl GameMap for TerritoryGraph {
     fn are_adjacent(&self, a: TerritoryId, b: TerritoryId) -> bool {
@@ -81,7 +81,16 @@ impl GameMap for TerritoryGraph {
 pub fn standard_map() -> TerritoryGraph {
     // TODO: correct number of edges
     let mut graph = TerritoryGraph::with_capacity(42, 100);
-    // let mut graph = Graph::new_undirected();
+    let mut indices = Vec::new();
+    for _ in 0..(NUM_TERRITORIES as TerritoryId) {
+        indices.push( graph.add_node(()) );
+    }
+
+    for i in 0..(NUM_TERRITORIES as TerritoryId) {
+        for &n in StandardTerritory::from_territory_id(i).neighbors().iter() {
+            graph.add_edge(indices[i as usize], indices[n as usize], ());
+        }
+    }
     graph
 }
 
@@ -99,12 +108,12 @@ pub enum Continent {
 impl Continent {
     fn get_range(&self) -> ops::Range<u8> {
         match *self {
-            Continent::Australia     => 0..4,
-            Continent::SouthAmerica => 4..8,
-            Continent::Africa        => 8..14,
-            Continent::Europe        => 14..21,
-            Continent::NorthAmerica => 21..30,
-            Continent::Asia          => 30..42,
+            Continent::Africa        => 0..6,
+            Continent::Asia          => 6..18,
+            Continent::Australia     => 18..22,
+            Continent::Europe        => 22..29,
+            Continent::NorthAmerica  => 29..38,
+            Continent::SouthAmerica  => 38..42
         }
     }
 
@@ -119,6 +128,167 @@ impl Continent {
         }
     }
 }
+
+#[derive(Copy, Clone)]
+enum StandardTerritory {
+    Congo = 0,
+    EastAfrica = 1,
+    Egypt = 2,
+    Madagascar = 3,
+    NorthAfrica = 4,
+    SouthAfrica = 5,
+
+    Afghanistan = 6,
+    China = 7,
+    India = 8,
+    Irkutsk = 9,
+    Japan = 10,
+    Kamchatka = 11,
+    MiddleEast = 12,
+    Mongolia = 13,
+    Siam = 14,
+    Siberia = 15,
+    Ural = 16,
+    Yakutsk = 17,
+
+    EasternAustralia = 18,
+    Indonesia = 19,
+    NewGuinea = 20,
+    WesternAustralia = 21,
+
+    GreatBritain = 22,
+    Iceland = 23,
+    NorthernEurope = 24,
+    Scandinavia = 25,
+    SouthernEurope = 26,
+    Ukraine = 27,
+    WesternEurope = 28,
+
+    Alaska = 29,
+    Alberta = 30,
+    CentralAmerica = 31,
+    EasternUS = 32,
+    Greenland = 33,
+    NorthwestTerritory = 34,
+    Ontario = 35,
+    Quebec = 36,
+    WesternUS = 37,
+
+    Argentina = 38,
+    Brazil = 39,
+    Peru = 40,
+    Venezuela = 41,
+}
+
+impl StandardTerritory {
+    fn from_territory_id(tid: TerritoryId) -> StandardTerritory {
+        use self::StandardTerritory::*;
+        match tid {
+            0 => Congo,
+            1 => EastAfrica,
+            2 => Egypt,
+            3 => Madagascar,
+            4 => NorthAfrica,
+            5 => SouthAfrica,
+
+            6 => Afghanistan,
+            7 => China,
+            8 => India,
+            9 => Irkutsk,
+            10 => Japan,
+            11 => Kamchatka,
+            12 => MiddleEast,
+            13 => Mongolia,
+            14 => Siam,
+            15 => Siberia,
+            16 => Ural,
+            17 => Yakutsk,
+
+            18 => EasternAustralia,
+            19 => Indonesia,
+            20 => NewGuinea,
+            21 => WesternAustralia,
+
+            22 => GreatBritain,
+            23 => Iceland,
+            24 => NorthernEurope,
+            25 => Scandinavia,
+            26 => SouthernEurope,
+            27 => Ukraine,
+            28 => WesternEurope,
+
+            29 => Alaska,
+            30 => Alberta,
+            31 => CentralAmerica,
+            32 => EasternUS,
+            33 => Greenland,
+            34 => NorthwestTerritory,
+            35 => Ontario,
+            36 => Quebec,
+            37 => WesternUS,
+
+            38 => Argentina,
+            39 => Brazil,
+            40 => Peru,
+            41 => Venezuela,
+            _ => panic!("Territory ID out of bounds for StandardTerritory"),
+        }
+    }
+
+    fn neighbors(&self) -> Vec<StandardTerritory> {
+        use self::StandardTerritory::*;
+        match *self {
+            Congo => vec![EastAfrica, NorthAfrica, SouthAfrica],
+            EastAfrica => vec![Congo, Egypt, Madagascar, NorthAfrica, MiddleEast],
+            Egypt => vec![EastAfrica, NorthAfrica, SouthernEurope],
+            Madagascar => vec![EastAfrica, SouthAfrica],
+            NorthAfrica => vec![Congo, EastAfrica, Egypt, SouthernEurope, WesternEurope, Brazil],
+            SouthAfrica => vec![Congo, EastAfrica, Madagascar],
+
+            Afghanistan => vec![China, India, MiddleEast, Ural, Ukraine],
+            China => vec![Afghanistan, India, Mongolia, Siam, Siberia, Ural],
+            India => vec![Afghanistan, China, MiddleEast, Siam],
+            Irkutsk => vec![Kamchatka, Mongolia, Siberia, Yakutsk],
+            Japan => vec![Kamchatka, Mongolia],
+            Kamchatka => vec![Irkutsk, Japan, Yakutsk, Alaska],
+            MiddleEast => vec![EastAfrica, Egypt, Afghanistan, India, SouthernEurope, Ukraine],
+            Mongolia => vec![China, Irkutsk, Japan, Kamchatka, Siberia],
+            Siam => vec![China, India, Indonesia],
+            Siberia => vec![China, Irkutsk, Mongolia, Ural, Yakutsk],
+            Ural => vec![Afghanistan, China, Siberia, Ukraine],
+            Yakutsk => vec![Irkutsk, Kamchatka, Siberia],
+
+            EasternAustralia => vec![NewGuinea, WesternAustralia],
+            Indonesia => vec![Siam, NewGuinea, WesternAustralia],
+            NewGuinea => vec![EasternAustralia, Indonesia, WesternAustralia],
+            WesternAustralia => vec![EasternAustralia, Indonesia, NewGuinea],
+
+            GreatBritain => vec![Iceland, NorthernEurope, Scandinavia, WesternEurope],
+            Iceland => vec![GreatBritain, Scandinavia, Greenland],
+            NorthernEurope => vec![GreatBritain, Scandinavia, SouthernEurope, Ukraine, WesternEurope],
+            Scandinavia => vec![GreatBritain, Iceland, NorthernEurope, Ukraine],
+            SouthernEurope => vec![Egypt, NorthAfrica, MiddleEast, NorthernEurope, Ukraine, WesternEurope],
+            Ukraine => vec![Afghanistan, MiddleEast, Ural, NorthernEurope, Scandinavia, SouthernEurope],
+            WesternEurope => vec![NorthAfrica, GreatBritain, NorthernEurope, SouthernEurope],
+
+            Alaska => vec![Kamchatka, Alberta, NorthwestTerritory],
+            Alberta => vec![Alaska, NorthwestTerritory, Ontario, WesternUS],
+            CentralAmerica => vec![EasternUS, WesternUS, Venezuela],
+            EasternUS => vec![CentralAmerica, Ontario, Quebec, WesternUS],
+            Greenland => vec![Iceland, NorthwestTerritory, Ontario, Quebec],
+            NorthwestTerritory => vec![Alaska, Alberta, Greenland, Ontario],
+            Ontario => vec![Alberta, EasternUS, Greenland, NorthwestTerritory, Quebec, WesternUS],
+            Quebec => vec![EasternUS, Greenland, Ontario],
+            WesternUS => vec![Alberta, CentralAmerica, EasternUS, Ontario],
+
+            Argentina => vec![Brazil, Peru,],
+            Brazil => vec![NorthAfrica, Argentina, Peru, Venezuela],
+            Peru => vec![Argentina, Brazil, Venezuela],
+            Venezuela => vec![CentralAmerica, Brazil, Peru],
+        }
+    }
+}
+
 
 pub type GameBoardTerritories = [(PlayerId, NumArmies); NUM_TERRITORIES];
 
