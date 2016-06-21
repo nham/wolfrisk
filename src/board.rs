@@ -39,6 +39,12 @@ pub trait GameBoard {
         self.get_owner(tid) != player
     }
 
+    fn add_armies(&mut self, tid: TerritoryId, add: NumArmies) {
+        let num_armies = self.get_num_armies(tid);
+        let owner = self.get_owner(tid);
+        self.set_territory(tid, owner, num_armies + add);
+    }
+
     fn remove_armies(&mut self, tid: TerritoryId, remove: NumArmies) {
         let num_armies = self.get_num_armies(tid);
 

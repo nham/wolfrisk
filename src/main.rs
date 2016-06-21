@@ -176,6 +176,10 @@ trait Player {
     fn get_cards(&self) -> &[Card];
 
     fn remove_card(&mut self, usize);
+
+    fn add_card(&mut self, card: Card) {
+        self.add_cards(vec![card]);
+    }
 }
 
 
@@ -329,7 +333,8 @@ impl Deck {
     }
 
     pub fn draw_random(&mut self) -> Card {
-        unimplemented!()
+        let i = rand::thread_rng().gen_range(0, self.available.len());
+        self.available.remove(i)
     }
 
     pub fn get_available(&self) -> &[Card] {
@@ -520,11 +525,11 @@ impl GameManager {
                              attack.amount_attacking,
                              attack.origin,
                              attack.target);
-                    if self.verify_attack(&attack) {
-                        self.perform_attack(&attack);
-                        // TODO: perform the attack
-                        // if all enemies were eliminated, conquered_one = true
-                        unimplemented!()
+                    if self.verify_battle(&attack) {
+                        let conquered = self.perform_battle(&attack);
+                        if conquered {
+                            conquered_one = true;
+                        }
                     } else {
                         println!("Attack chosen is invalid. Choose again");
                     }
@@ -541,7 +546,9 @@ impl GameManager {
 
     // this function is called once the proposed attack has been verified
     // to be a valid attack
-    fn perform_attack(&mut self, attack: &Attack) {
+    // Returns true if the battle resulted in the defending territory being
+    // conquered
+    fn perform_battle(&mut self, attack: &Attack) -> bool {
         let num_enemy_armies = self.board.get_num_armies(attack.target);
         let amount_defending = defending_allowed(num_enemy_armies);
         let amount_attacking = attack.amount_attacking;
@@ -574,14 +581,27 @@ impl GameManager {
                 }
             };
 
+        let must_commit = amount_attacking - outcome.0;
+
         if outcome.0 > 0 {
             self.board.remove_armies(attack.origin, outcome.0);
-            println!("Territory {} lost {} units in battle", attack.origin, outcome.0);
+            println!("Attacking territory {} lost {} units in battle", attack.origin, outcome.0);
         }
 
         if outcome.1 > 0 {
             self.board.remove_armies(attack.target, outcome.1);
-            println!("Territory {} lost {} units in battle", attack.target, outcome.1);
+            println!("Defending territory {} lost {} units in battle", attack.target, outcome.1);
+        }
+
+        if self.board.get_num_armies(attack.target) == 0 {
+            self.board.remove_armies(attack.origin, must_commit);
+            self.board.add_armies(attack.target, must_commit);
+            println!("Territory {} was conquered, moving {} units over from {}",
+                     attack.target, must_commit, attack.origin);
+            true
+            // TODO: prompt user for combat move
+        } else {
+            false
         }
     }
 
@@ -604,7 +624,7 @@ impl GameManager {
         total_amt == reinf_amt
     }
 
-    fn verify_attack(&self, attack: &Attack) -> bool {
+    fn verify_battle(&self, attack: &Attack) -> bool {
         // if there are that many excess units on the origin territory
         // and the target territory is actually an adjacent enemy
         // then the attack is valid. otherwise, not.
