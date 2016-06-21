@@ -5,11 +5,10 @@ use std::ops;
 
 use super::{PlayerId, TerritoryId, NumArmies, NUM_TERRITORIES};
 
-// Game board: contains publically available game state
+// Game board models the state of board:
 //
 //    a) the owner of each territory
 //    b) how many occupying armies on each territory
-//    c) how many cards each player has
 //
 // The data structure representing the game board should supply
 // methods for changing the board state.
@@ -17,7 +16,6 @@ use super::{PlayerId, TerritoryId, NumArmies, NUM_TERRITORIES};
 pub trait GameBoard {
     fn get_owner(&self, TerritoryId) -> PlayerId;
     fn get_num_armies(&self, TerritoryId) -> NumArmies;
-    fn get_num_cards(&self, PlayerId) -> u8;
     fn get_num_owned_territories(&self, PlayerId) -> u8;
     fn get_owned_territories(&self, PlayerId) -> Vec<TerritoryId>;
     fn get_continent_bonuses(&self, PlayerId) -> u8;
@@ -28,7 +26,6 @@ pub trait GameBoard {
     fn get_territory_reinforcements(&self, player: PlayerId) -> NumArmies;
 
     fn set_territory(&mut self, TerritoryId, PlayerId, NumArmies);
-    fn set_num_cards(&mut self, PlayerId, u8);
     fn game_is_over(&self) -> bool;
     fn player_is_defeated(&self, PlayerId) -> bool;
 
@@ -301,7 +298,6 @@ pub type GameBoardTerritories = [(PlayerId, NumArmies); NUM_TERRITORIES];
 pub struct StandardGameBoard {
     num_players: u8,
     territories: GameBoardTerritories,
-    num_cards: Vec<u8>,
     map: TerritoryGraph,
 }
 
@@ -310,7 +306,6 @@ impl StandardGameBoard {
         StandardGameBoard {
             num_players: num_players,
             territories: territories,
-            num_cards: vec![0; num_players as usize],
             map: standard_map(),
         }
     }
@@ -347,10 +342,6 @@ impl GameBoard for StandardGameBoard {
 
     fn get_num_armies(&self, terr: TerritoryId) -> NumArmies {
         self.territories[terr as usize].1
-    }
-
-    fn get_num_cards(&self, player: PlayerId) -> u8 {
-        self.num_cards[player as usize]
     }
 
     fn get_num_owned_territories(&self, player: PlayerId) -> u8 {
@@ -415,14 +406,6 @@ impl GameBoard for StandardGameBoard {
         }
 
         self.territories[terr as usize] = (owner, num_armies);
-    }
-
-    fn set_num_cards(&mut self, player: PlayerId, num_cards: u8) {
-        if player as u8 > self.num_players {
-            panic!("Error in `set_num_cards`: invalid player");
-        }
-
-        self.num_cards[player as usize] = num_cards;
     }
 
     fn game_is_over(&self) -> bool {

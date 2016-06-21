@@ -34,7 +34,7 @@ fn max_allowed(max: NumArmies, pool: NumArmies) -> NumArmies {
 
 #[derive(Copy, Clone)]
 struct Trade {
-    cards: [Card; 3],
+    pub cards: [Card; 3],
 }
 
 impl Trade {
@@ -93,7 +93,7 @@ impl CardSymbol {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Card {
     Territory(TerritoryId, CardSymbol),
     Wild,
@@ -176,6 +176,23 @@ trait Player {
 
     fn add_card(&mut self, card: Card) {
         self.add_cards(vec![card]);
+    }
+
+    fn has_3_cards(&self, cards: [Card; 3]) -> bool {
+        let mut has: [bool; 3] = [false, false, false];
+        for &card in self.get_cards().iter() {
+            for i in 0..3 {
+                if !has[i] && card == cards[i] {
+                    has[i] = true;
+                }
+            }
+        }
+
+        has[0] && has[1] && has[2]
+    }
+
+    fn get_num_cards(&self) -> usize {
+        self.get_cards().len()
     }
 }
 
@@ -396,7 +413,7 @@ impl GameManager {
         self.log_starting_game();
         let mut current_player = self.current_player();
 
-        const MAX_NUM_TURNS: usize = 10;
+        const MAX_NUM_TURNS: usize = 20;
         let mut turn = 0;
 
         while !self.board.game_is_over() {
@@ -428,26 +445,32 @@ impl GameManager {
     // of a turn, you can turn in as many as you want
     // but during an attack you must turn in only until you have > 5, then you have to stop
     fn process_trade(&mut self, current_id: PlayerId) -> NumArmies {
-        if self.board.get_num_cards(current_id) < 3 {
+        if self.get_player(current_id).get_num_cards() < 3 {
             return 0;
         }
 
-        let trade_necessary = self.board.get_num_cards(current_id) > 4;
+        let trade_necessary = self.get_player(current_id).get_num_cards() > 4;
         let terr_reinf = self.board.get_territory_reinforcements(current_id);
 
         let mut reinf = 0;
         loop {
             let chosen_trade = self.get_player(current_id)
                                    .make_trade(terr_reinf, trade_necessary);
+            println!("Player {} has proposed trade {:?}",
+                     current_id,
+                     chosen_trade.map(|trade| trade.cards));
             if self.verify_trade(current_id, chosen_trade, trade_necessary) {
                 match chosen_trade {
                     Some(trade) => {
+                        println!("Player {} is trading in {:?}",
+                                 current_id,
+                                 trade.cards);
                         reinf += self.perform_trade(trade);
                     },
                     None => {},
                 }
 
-                if self.board.get_num_cards(current_id) < 3 {
+                if self.get_player(current_id).get_num_cards() < 3 {
                     break;
                 }
 
@@ -639,7 +662,9 @@ impl GameManager {
         // TODO: verify that player owns each card it's trying to trade in?
         match trade {
             None => !necessary,
-            Some(trade) => trade.is_set(),
+            Some(trade) => {
+                self.get_player(player).has_3_cards(trade.cards) && trade.is_set()
+            },
         }
     }
 
