@@ -83,7 +83,7 @@ enum Card {
 
 
 struct Reinforcement {
-    player: PlayerId,
+    pub player: PlayerId,
     reinf: HashMap<TerritoryId, NumArmies>,
 }
 
@@ -97,10 +97,6 @@ impl Reinforcement {
 
     fn iter(&self) -> std::collections::hash_map::Iter<TerritoryId, NumArmies> {
         self.reinf.iter()
-    }
-
-    fn player(&self) -> PlayerId {
-        self.player
     }
 }
 
@@ -486,7 +482,7 @@ impl GameManager {
         attack_info
     }
 
-    pub fn process_attack(&self, curr_id: PlayerId) {
+    pub fn process_attack(&mut self, curr_id: PlayerId) {
         // prompt the player for a sequence of attacks:
         let owned = self.board.get_owned_territories(curr_id);
         let attack_info = self.generate_adj_enemy_info(curr_id, &owned[..]);
@@ -500,6 +496,7 @@ impl GameManager {
                 None => break,
                 Some(attack) => {
                     if self.verify_attack(&attack) {
+                        self.perform_attack(&attack);
                         // TODO: perform the attack
                         // if all enemies were eliminated, conquered_one = true
                         unimplemented!()
@@ -517,6 +514,10 @@ impl GameManager {
         }
     }
 
+    fn perform_attack(&mut self, attack: &Attack) {
+        unimplemented!()
+    }
+
     fn verify_trade(&self, trade: Option<Trade>, necessary: bool) -> bool {
         // TODO: verify that player owns each card it's trying to trade in?
         match trade {
@@ -529,7 +530,7 @@ impl GameManager {
         let mut total_amt = 0;
         for (&terr, &amt) in reinf.iter() {
             total_amt += amt;
-            if self.board.is_enemy_territory(reinf.player(), terr) {
+            if self.board.is_enemy_territory(reinf.player, terr) {
                 return false;
             }
         }
