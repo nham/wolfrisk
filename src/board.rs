@@ -85,7 +85,7 @@ pub fn standard_map() -> TerritoryGraph {
     let mut graph = TerritoryGraph::with_capacity(42, 82);
     let mut indices = Vec::new();
     for _ in 0..(NUM_TERRITORIES as TerritoryId) {
-        indices.push( graph.add_node(()) );
+        indices.push(graph.add_node(()));
     }
 
     for i in 0..(NUM_TERRITORIES as TerritoryId) {

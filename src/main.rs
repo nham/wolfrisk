@@ -48,7 +48,7 @@ impl Trade {
 
     fn contains_wild(&self) -> bool {
         for i in 0..3 {
-            if let Card::Wild = self.cards[i] {
+            if self.cards[i].0.is_wild() {
                 return true;
             }
         }
@@ -99,6 +99,16 @@ enum Card {
     Wild,
 }
 
+impl Card {
+    fn is_wild(&self) -> bool {
+        if let &Card::Wild = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 
 struct Reinforcement {
     reinf: HashMap<TerritoryId, NumArmies>,
@@ -106,9 +116,7 @@ struct Reinforcement {
 
 impl Reinforcement {
     fn new(reinf: HashMap<TerritoryId, NumArmies>) -> Reinforcement {
-        Reinforcement {
-            reinf: reinf,
-        }
+        Reinforcement { reinf: reinf }
     }
 
     fn iter(&self) -> std::collections::hash_map::Iter<TerritoryId, NumArmies> {
@@ -362,7 +370,7 @@ fn one_rolled_1(attacker: NumArmies, defender: NumArmies) -> Option<[f64; 2]> {
         (2, 1) => Some([0.4213, 0.5787]),
         (3, 1) => Some([0.3403, 0.6597]),
         (1, 2) => Some([0.7454, 0.2546]),
-        _ => None
+        _ => None,
     }
 }
 
@@ -371,7 +379,7 @@ fn both_rolled_at_least_2(attacker: NumArmies, defender: NumArmies) -> Option<[f
     match (attacker, defender) {
         (2, 2) => Some([0.4483, 0.2276, 0.3241]),
         (3, 2) => Some([0.2926, 0.3717, 0.3358]),
-        _ => None
+        _ => None,
     }
 }
 
@@ -454,20 +462,19 @@ impl GameManager {
 
         let mut reinf = 0;
         loop {
+            // TODO: maybe the player should just give indices
+            // and the GameManager will remove them somehow?
+            // I think the key here might be moving the cards out of
+            // the Player datastructure
             let chosen_trade = self.get_player(current_id)
                                    .make_trade(terr_reinf, trade_necessary);
-            println!("Player {} has proposed trade {:?}",
-                     current_id,
-                     chosen_trade.map(|trade| trade.cards));
-            if self.verify_trade(current_id, chosen_trade, trade_necessary) {
+            if self.verify_trade(current_id, &chosen_trade, trade_necessary) {
                 match chosen_trade {
                     Some(trade) => {
-                        println!("Player {} is trading in {:?}",
-                                 current_id,
-                                 trade.cards);
+                        println!("Player {} is trading in {:?}", current_id, trade.cards);
                         reinf += self.perform_trade(trade);
-                    },
-                    None => {},
+                    }
+                    None => {}
                 }
 
                 if self.get_player(current_id).get_num_cards() < 3 {
@@ -492,7 +499,9 @@ impl GameManager {
         // calculate reinf
         let reinf_amt = self.board.get_territory_reinforcements(curr_id) + trade_reinf;
 
-        println!("\nPlayer {} is distributing {} reinforcements", curr_id, reinf_amt);
+        println!("\nPlayer {} is distributing {} reinforcements",
+                 curr_id,
+                 reinf_amt);
         println!("==========");
 
         loop {
@@ -527,11 +536,12 @@ impl GameManager {
             attack_info.push(AttackTerritoryInfo {
                 id: terr,
                 armies: self.board.get_num_armies(terr),
-                adj_enemies: self.board.game_map()
-                                       .get_neighbors(terr)
-                                       .into_iter()
-                                       .filter(|&tid| self.board.is_enemy_territory(curr_id, tid))
-                                       .collect(),
+                adj_enemies: self.board
+                    .game_map()
+                    .get_neighbors(terr)
+                    .into_iter()
+                    .filter(|&tid| self.board.is_enemy_territory(curr_id, tid))
+                    .collect(),
             });
         }
         attack_info
@@ -638,19 +648,25 @@ impl GameManager {
 
         if outcome.0 > 0 {
             self.board.remove_armies(attack.origin, outcome.0);
-            println!("Attacking territory {} lost {} units in battle", attack.origin, outcome.0);
+            println!("Attacking territory {} lost {} units in battle",
+                     attack.origin,
+                     outcome.0);
         }
 
         if outcome.1 > 0 {
             self.board.remove_armies(attack.target, outcome.1);
-            println!("Defending territory {} lost {} units in battle", attack.target, outcome.1);
+            println!("Defending territory {} lost {} units in battle",
+                     attack.target,
+                     outcome.1);
         }
 
         if self.board.get_num_armies(attack.target) == 0 {
             self.board.remove_armies(attack.origin, must_commit);
             self.board.add_armies(attack.target, must_commit);
             println!("Territory {} was conquered, moving {} units over from {}",
-                     attack.target, must_commit, attack.origin);
+                     attack.target,
+                     must_commit,
+                     attack.origin);
             true
             // TODO: prompt user for combat move
         } else {
@@ -658,13 +674,10 @@ impl GameManager {
         }
     }
 
-    fn verify_trade(&self, player: PlayerId, trade: Option<Trade>, necessary: bool) -> bool {
-        // TODO: verify that player owns each card it's trying to trade in?
-        match trade {
+    fn verify_trade(&self, player: PlayerId, trade: &Option<Trade>, necessary: bool) -> bool {
+        match *trade {
             None => !necessary,
-            Some(trade) => {
-                self.get_player(player).has_3_cards(trade.cards) && trade.is_set()
-            },
+            Some(ref trade) => self.get_player(player).has_3_cards(trade.cards) && trade.is_set(),
         }
     }
 
@@ -684,10 +697,10 @@ impl GameManager {
         // and the target territory is actually an adjacent enemy
         // then the attack is valid. otherwise, not.
         let can_attack_with = self.board.get_num_armies(attack.origin) - 1;
-        self.board.get_owner(attack.origin) == player
-            && can_attack_with >= attack.amount_attacking
-            && self.board.game_map().are_adjacent(attack.origin, attack.target)
-            && self.board.is_enemy_territory(player, attack.target)
+        self.board.get_owner(attack.origin) == player &&
+        can_attack_with >= attack.amount_attacking &&
+        self.board.game_map().are_adjacent(attack.origin, attack.target) &&
+        self.board.is_enemy_territory(player, attack.target)
     }
 
     fn get_player(&self, id: PlayerId) -> &Player {
