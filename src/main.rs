@@ -210,7 +210,7 @@ impl Reinforcement {
 struct AttackTerritoryInfo {
     pub id: TerritoryId,
     pub armies: NumArmies,
-    pub adj_enemies: Vec<TerritoryId>,
+    pub adj_enemies: HashSet<TerritoryId>,
 }
 
 type AttackTerritories = HashMap<TerritoryId, AttackTerritoryInfo>;
@@ -346,8 +346,14 @@ impl Player for RandomPlayer {
             if info.armies > 1 && info.adj_enemies.len() > 0 {
                 let x = rand::thread_rng().gen_range(0., 1.);
                 if x >= self.param_attack {
-                    let rand_idx = rand::thread_rng().gen_range(0, info.adj_enemies.len());
-                    let defender = info.adj_enemies[rand_idx];
+                    let defender = {
+                        let mut adj_enemies: Vec<_> = info.adj_enemies.iter()
+                                                                      .map(|&e| e)
+                                                                      .collect();
+                        rand::thread_rng().shuffle(&mut adj_enemies);
+                        adj_enemies[0]
+                    };
+
                     // TODO: this always takes the max amount that can be attacked with
                     // should it be something different?
                     return Some(Attack::new(info.id,
@@ -537,7 +543,7 @@ impl GameManager {
         self.log_starting_game();
         let mut current_player = self.current_player();
 
-        const MAX_NUM_TURNS: usize = 20;
+        const MAX_NUM_TURNS: usize = 40;
         let mut turn = 0;
 
         while !self.board.game_is_over() {
@@ -654,72 +660,73 @@ impl GameManager {
         }
     }
 
-    fn generate_adj_enemy_info(&self,
-                               curr_id: PlayerId,
-                               owned: &[TerritoryId])
-                               -> Vec<AttackTerritoryInfo> {
-        let mut attack_info = Vec::new();
+    fn make_attack_info(&self, player: PlayerId) -> HashMap<TerritoryId, AttackTerritoryInfo> {
+        let owned = self.board.get_owned_territories(player);
+        let mut attack_info = HashMap::new();
         for &terr in owned.iter() {
-            // for each territory get the list of adjacent enemy territories
-            attack_info.push(AttackTerritoryInfo {
+            let ati = AttackTerritoryInfo {
                 id: terr,
                 armies: self.board.get_num_armies(terr),
                 adj_enemies: self.board
-                    .game_map()
-                    .get_neighbors(terr)
-                    .into_iter()
-                    .filter(|&tid| self.board.is_enemy_territory(curr_id, tid))
-                    .collect(),
-            });
+                          .game_map()
+                          .get_neighbors(terr)
+                          .into_iter()
+                          .filter(|&tid| self.board.is_enemy_territory(player, tid))
+                          .collect(),
+            };
+            attack_info.insert(terr, ati);
         }
         attack_info
     }
 
-    pub fn process_attack(&mut self, curr_id: PlayerId) {
-        // prompt the player for a sequence of attacks:
-        let owned = self.board.get_owned_territories(curr_id);
-        let mut attack_info = HashMap::new();
-        for info in self.generate_adj_enemy_info(curr_id, &owned[..]).into_iter() {
-            attack_info.insert(info.id, info);
+    fn update_attack_info(&mut self,
+                          attack_info: &mut HashMap<TerritoryId, AttackTerritoryInfo>,
+                          origin: TerritoryId,
+                          target: TerritoryId,
+                          conquered: bool) {
+        // update number of armies for the attacking territory
+        if self.board.get_num_armies(origin) == 1 {
+            attack_info.remove(&origin);
+        } else {
+            let origin_ati = attack_info.get_mut(&origin).unwrap();
+            origin_ati.armies = self.board.get_num_armies(origin);
         }
+
+        // if the target territory was conquered, remove it as an adjacent enemy territory
+        // from all ATIs
+        if conquered {
+            for (_, info) in attack_info.iter_mut() {
+                info.adj_enemies.remove(&target);
+            }
+        }
+    }
+
+    pub fn process_attack(&mut self, player: PlayerId) {
+        // prompt the player for a sequence of attacks:
+        let mut attack_info = self.make_attack_info(player);
 
         let mut conquered_one = false;
 
         loop {
-            let chosen_attack = self.get_player(curr_id).make_attack(&attack_info);
+            let chosen_attack = self.get_player(player).make_attack(&attack_info);
             match chosen_attack {
                 None => break,
                 Some(attack) => {
                     println!("Player {} is attacking with {} from {} to {}",
-                             curr_id,
+                             player,
                              attack.amount_attacking,
                              attack.origin,
                              attack.target);
-                    if self.verify_battle(curr_id, &attack) {
+                    if self.verify_battle(player, &attack) {
                         let conquered = self.perform_battle(&attack);
 
-                        // update attack_info
-                        if self.board.get_num_armies(attack.origin) == 1 {
-                            attack_info.remove(&attack.origin);
-                        } else {
-                            let origin = attack_info.get_mut(&attack.origin).unwrap();
-                            origin.armies = self.board.get_num_armies(attack.origin);
-                        }
+                        self.update_attack_info(&mut attack_info,
+                                                attack.origin,
+                                                attack.target,
+                                                conquered);
 
                         if conquered {
                             conquered_one = true;
-                            // update attack_info
-                            for (_, info) in attack_info.iter_mut() {
-                                let mut conquered_ind = None;
-                                for i in 0..info.adj_enemies.len() {
-                                    if info.adj_enemies[i] == attack.target {
-                                        conquered_ind = Some(i);
-                                    }
-                                }
-                                if let Some(ind) = conquered_ind {
-                                    info.adj_enemies.remove(ind);
-                                }
-                            }
                         }
                     } else {
                         println!("Attack chosen is invalid. Choose again");
@@ -730,7 +737,7 @@ impl GameManager {
         }
 
         if conquered_one {
-            self.cards.draw_random_for_player(curr_id);
+            self.cards.draw_random_for_player(player);
         }
     }
 
@@ -799,6 +806,10 @@ impl GameManager {
         } else {
             false
         }
+    }
+
+    pub fn process_fortify(&mut self, curr_id: PlayerId) {
+        unimplemented!();
     }
 
     fn verify_trade(&self, player: PlayerId, trade: &Option<Trade>, necessary: bool) -> bool {
