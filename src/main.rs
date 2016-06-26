@@ -43,23 +43,32 @@ impl Trade {
         Trade { cards: cards }
     }
 
+    fn cards_as_tuple(&self) -> (Card, Card, Card) {
+        (self.cards[0].0, self.cards[1].0, self.cards[2].0)
+    }
+
     fn is_set(&self) -> bool {
         self.contains_wild() || self.is_non_wild_set()
     }
 
     fn contains_wild(&self) -> bool {
+        self.num_wild() > 0
+    }
+
+    fn num_wild(&self) -> usize {
+        let mut count = 0;
         for i in 0..3 {
             if self.cards[i].0.is_wild() {
-                return true;
+                count += 1;
             }
         }
-        false
+        count
     }
 
     // returns whether the 3 cards contain no wilds but still form a set
     // (i.e. 3 of a kind or 1 of each kind)
     fn is_non_wild_set(&self) -> bool {
-        match (self.cards[0].0, self.cards[1].0, self.cards[2].0) {
+        match self.cards_as_tuple() {
             (Card::Territory(_, symbol0),
              Card::Territory(_, symbol1),
              Card::Territory(_, symbol2)) => {
@@ -72,6 +81,62 @@ impl Trade {
                 }
             }
             _ => false,
+        }
+    }
+
+    // TODO: this should probably be in a Rules object
+    // or something
+    fn value(&self) -> NumArmies {
+        if !self.is_set() {
+            0
+        } else {
+            match self.cards_as_tuple() {
+                (Card::Territory(_, sym0),
+                 Card::Territory(_, sym1),
+                 Card::Territory(_, sym2)) => {
+                    if sym0 == sym1 && sym1 == sym2 {
+                        Trade::value_for_uniform_set(sym0)
+                    } else if sym0 != sym1 && sym1 != sym2 && sym0 != sym2 {
+                        10
+                    } else {
+                        0
+                    }
+                }
+                cards => {
+                    // trade contains a wild
+                    if self.num_wild() == 2 {
+                        10
+                    } else {
+                        let cards = vec![cards.0, cards.1, cards.2];
+
+                        let i = if cards[0].is_wild() {
+                            0
+                        } else if cards[1].is_wild() {
+                            1
+                        } else {
+                            2
+                        };
+
+                        if cards[(i + 1) % 3] == cards[(i + 2) % 3] {
+                            let sym = cards[(i + 1) % 3].get_symbol()
+                                                        .expect("There seems to be more than one wild, which .num_wild() did not detect.");
+                            Trade::value_for_uniform_set(sym)
+                        } else {
+                            10
+                        }
+                    }
+                },
+            }
+        }
+    }
+
+
+    // value for a set where all cards have the given CardSymbol
+    fn value_for_uniform_set(x: CardSymbol) -> NumArmies {
+        match x {
+            CardSymbol::Infantry => 4,
+            CardSymbol::Cavalry => 6,
+            CardSymbol::Artillery => 8,
         }
     }
 }
@@ -108,6 +173,21 @@ impl Card {
             false
         }
     }
+
+    fn get_symbol(&self) -> Option<CardSymbol> {
+        match *self {
+            Card::Territory(_, sym) => Some(sym),
+            Card::Wild => None,
+        }
+    }
+
+    fn get_territory(&self) -> Option<TerritoryId> {
+        match *self {
+            Card::Territory(terr, _) => Some(terr),
+            Card::Wild => None,
+        }
+    }
+
 }
 
 type CardAndId = (Card, CardId);
@@ -488,28 +568,24 @@ impl GameManager {
     // isn't this wrong? aren't there two different behaviors? if you are at the beginning
     // of a turn, you can turn in as many as you want
     // but during an attack you must turn in only until you have > 5, then you have to stop
-    fn process_trade(&mut self, current_id: PlayerId) -> NumArmies {
-        if self.cards.get_num_player_cards(current_id) < 3 {
+    fn process_trade(&mut self, player: PlayerId) -> NumArmies {
+        if self.cards.get_num_player_cards(player) < 3 {
             return 0;
         }
 
-        let trade_necessary = self.cards.get_num_player_cards(current_id) > 4;
-        let terr_reinf = self.board.get_territory_reinforcements(current_id);
-        let player_cards = self.cards.get_player_cards(current_id); //TODO
+        let trade_necessary = self.cards.get_num_player_cards(player) > 4;
+        let terr_reinf = self.board.get_territory_reinforcements(player);
+        let player_cards = self.cards.get_player_cards(player);
 
         let mut reinf = 0;
         loop {
-            // TODO: maybe the player should just give indices
-            // and the GameManager will remove them somehow?
-            // I think the key here might be moving the cards out of
-            // the Player datastructure
-            let chosen_trade = self.get_player(current_id)
+            let chosen_trade = self.get_player(player)
                                    .make_trade(&player_cards[..], terr_reinf, trade_necessary);
-            if self.verify_trade(current_id, &chosen_trade, trade_necessary) {
+            if self.verify_trade(player, &chosen_trade, trade_necessary) {
                 match chosen_trade {
                     Some(trade) => {
-                        println!("Player {} is trading in {:?}", current_id, trade.cards);
-                        reinf += self.perform_trade(trade);
+                        println!("Player {} is trading in {:?}", player, trade.cards);
+                        reinf += self.perform_trade(player, trade);
                     }
                     None => {
                         // assume that the player doesn't want to trade in anything else
@@ -517,7 +593,7 @@ impl GameManager {
                     }
                 }
 
-                if self.cards.get_num_player_cards(current_id) < 3 {
+                if self.cards.get_num_player_cards(player) < 3 {
                     break;
                 }
 
@@ -529,8 +605,20 @@ impl GameManager {
     }
 
     // returns the number of bonus armies granted by the trade-in
-    fn perform_trade(&mut self, trade: Trade) -> NumArmies {
-        unimplemented!()
+    fn perform_trade(&mut self, player: PlayerId, trade: Trade) -> NumArmies {
+        for i in 0..3 {
+            self.cards.player_discard_card(player, trade.cards[i].1);
+            match trade.cards[i].0.get_territory() {
+                None => continue,
+                Some(tid) => {
+                    if self.board.get_owner(tid) == player {
+                        self.board.add_armies(tid, 2);
+                    }
+                },
+            }
+        }
+
+        trade.value()
     }
 
     pub fn process_reinforcement(&mut self, curr_id: PlayerId, trade_reinf: NumArmies) {

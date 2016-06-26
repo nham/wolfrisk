@@ -97,7 +97,7 @@ pub fn standard_map() -> TerritoryGraph {
 }
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Continent {
     Australia,
     SouthAmerica,
@@ -388,8 +388,8 @@ impl GameBoard for StandardGameBoard {
             if self.get_owner(i) != player {
                 return false;
             }
-            println!("player owns {}", i);
         }
+        println!("player {} owns continent {:?}", player, continent);
         true
     }
 
