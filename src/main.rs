@@ -2,7 +2,7 @@ extern crate petgraph;
 extern crate rand;
 
 use rand::Rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use board::{GameBoard, GameMap, StandardGameBoard};
 
@@ -217,10 +217,6 @@ impl Player for RandomPlayer {
             return None;
         }
 
-        // the indexes below are wrong.
-        // create copy of player's card list
-        unimplemented!();
-
         // clone the card list and shuffle it
         let mut card_idxs = vec![];
         let N = cards.len();
@@ -295,21 +291,22 @@ impl Player for RandomPlayer {
 
 struct CardManager {
     cards: Vec<Card>,
-    available: Vec<CardId>,
-    discarded: Vec<CardId>,
-    player_cards: HashMap<PlayerId, Vec<CardId>>,
+    available: HashSet<CardId>,
+    discarded: HashSet<CardId>,
+    player_cards: HashMap<PlayerId, HashSet<CardId>>,
 }
 
 impl CardManager {
     pub fn new(num_players: usize, cards: Vec<Card>) -> CardManager {
         let mut map = HashMap::new();
         for i in 0..(num_players as PlayerId) {
-            map.insert(i, Vec::new());
+            map.insert(i, HashSet::new());
         }
+        let N = cards.len();
         CardManager {
             cards: cards,
-            available: (0..NUM_TERRITORIES as CardId).collect(),
-            discarded: Vec::new(),
+            available: (0..N).collect(),
+            discarded: HashSet::new(),
             player_cards: map,
         }
     }
@@ -330,19 +327,22 @@ impl CardManager {
     pub fn player_discard_card(&mut self, player: PlayerId, cid: CardId) {
         match self.player_cards.get_mut(&player) {
             None => panic!("Player {} is invalid", player),
-            Some(player_cards) => self.discarded.push(player_cards.remove(cid)),
+            Some(player_cards) => {
+                if player_cards.remove(&cid) {
+                    self.discarded.insert(cid);
+                }
+            },
         }
     }
 
-    pub fn get_available(&self) -> &[CardId] {
-        &self.available[..]
+    pub fn get_available(&self) -> Vec<CardId> {
+        self.available.iter().map(|&cid| cid).collect()
     }
 
     pub fn get_player_cards(&self, player: PlayerId) -> Vec<CardAndId> {
         match self.player_cards.get(&player) {
             None => panic!("Player {} is invalid", player),
-            Some(cards) => cards.clone()
-                                .iter()
+            Some(cards) => cards.iter()
                                 .map(|&id| (self.cards[id], id))
                                 .collect(),
         }
@@ -358,9 +358,7 @@ impl CardManager {
 
     // when the `available` pile is empty, add in the discarded cards.
     fn recycle_discard_pile(&mut self) {
-        for _ in 0..(self.discarded.len()) {
-            self.available.push(self.discarded.pop().unwrap());
-        }
+        self.available.extend(self.discarded.drain());
     }
 
     pub fn draw_random_for_player(&mut self, player: PlayerId) {
@@ -368,11 +366,14 @@ impl CardManager {
             self.recycle_discard_pile();
         }
 
-        let i = rand::thread_rng().gen_range(0, self.available.len());
-
         match self.player_cards.get_mut(&player) {
             None => panic!("Player {} is invalid", player),
-            Some(cards) => cards.push(self.available.remove(i)),
+            Some(cards) => {
+                // clone the card list and shuffle it
+                let mut cids: Vec<_> = self.available.iter().map(|&c| c).collect();
+                rand::thread_rng().shuffle(&mut cids);
+                cards.insert(cids[0]);
+            },
         }
     }
 
@@ -510,7 +511,10 @@ impl GameManager {
                         println!("Player {} is trading in {:?}", current_id, trade.cards);
                         reinf += self.perform_trade(trade);
                     }
-                    None => {}
+                    None => {
+                        // assume that the player doesn't want to trade in anything else
+                        break;
+                    }
                 }
 
                 if self.cards.get_num_player_cards(current_id) < 3 {
