@@ -32,13 +32,14 @@ fn max_allowed(max: NumArmies, pool: NumArmies) -> NumArmies {
     }
 }
 
-#[derive(Copy, Clone)]
+type CardId = usize;
+
 struct Trade {
-    pub cards: [Card; 3],
+    pub cards: [CardAndId; 3],
 }
 
 impl Trade {
-    fn new(cards: [Card; 3]) -> Trade {
+    fn new(cards: [CardAndId; 3]) -> Trade {
         Trade { cards: cards }
     }
 
@@ -58,7 +59,7 @@ impl Trade {
     // returns whether the 3 cards contain no wilds but still form a set
     // (i.e. 3 of a kind or 1 of each kind)
     fn is_non_wild_set(&self) -> bool {
-        match (self.cards[0], self.cards[1], self.cards[2]) {
+        match (self.cards[0].0, self.cards[1].0, self.cards[2].0) {
             (Card::Territory(_, symbol0),
              Card::Territory(_, symbol1),
              Card::Territory(_, symbol2)) => {
@@ -109,6 +110,7 @@ impl Card {
     }
 }
 
+type CardAndId = (Card, CardId);
 
 struct Reinforcement {
     reinf: HashMap<TerritoryId, NumArmies>,
@@ -157,7 +159,7 @@ type Move = ();
 
 trait Player {
     // called at the beginning of the turn, prompts the player to turn in a set
-    fn make_trade(&self, other_reinf: NumArmies, necessary: bool) -> Option<Trade>;
+    fn make_trade(&self, cards: &[CardAndId], other_reinf: NumArmies, necessary: bool) -> Option<Trade>;
 
     // called after a potential set trade, prompts the player to distribute
     // available reinforcements
@@ -175,39 +177,10 @@ trait Player {
     // called exactly once per turn after all attacks are completed. prompts the user
     // to fortify a territory?
     fn fortify(&self) -> Move;
-
-    fn add_cards(&mut self, cards: Vec<Card>);
-
-    fn get_cards(&self) -> &[Card];
-
-    fn remove_card(&mut self, usize);
-
-    fn add_card(&mut self, card: Card) {
-        self.add_cards(vec![card]);
-    }
-
-    fn has_3_cards(&self, cards: [Card; 3]) -> bool {
-        let mut has: [bool; 3] = [false, false, false];
-        for &card in self.get_cards().iter() {
-            for i in 0..3 {
-                if !has[i] && card == cards[i] {
-                    has[i] = true;
-                }
-            }
-        }
-
-        has[0] && has[1] && has[2]
-    }
-
-    fn get_num_cards(&self) -> usize {
-        self.get_cards().len()
-    }
 }
 
 
-#[derive(Clone)]
 struct RandomPlayer {
-    cards: Vec<Card>,
     // determines how often the player trades in a set when it's not necessary
     // ('nnt' stands for non necessary trade-in
     param_nnt: f64,
@@ -223,7 +196,6 @@ impl RandomPlayer {
         let mut players = vec![];
         for _ in 0..number {
             let player = RandomPlayer {
-                cards: vec![],
                 param_nnt: rand::thread_rng().gen_range(0., 1.),
                 param_attack: rand::thread_rng().gen_range(0., 1.),
             };
@@ -235,26 +207,38 @@ impl RandomPlayer {
 }
 
 impl Player for RandomPlayer {
-    fn make_trade(&self, other_reinf: NumArmies, necessary: bool) -> Option<Trade> {
+    fn make_trade(&self, cards: &[CardAndId], other_reinf: NumArmies, necessary: bool) -> Option<Trade> {
         // if necessary or not necessary but a random roll exceeded k for some k in [0, 1]
         // then we make a trade. Identify all of the sets and pick one at
         // random.
+
         let x = rand::thread_rng().gen_range(0., 1.);
         if !necessary && x < self.param_nnt {
             return None;
         }
 
-        // clone the card list and shuffle it
-        let mut cards = self.cards.clone();
-        let N = cards.len();
+        // the indexes below are wrong.
+        // create copy of player's card list
+        unimplemented!();
 
-        rand::thread_rng().shuffle(&mut cards);
+        // clone the card list and shuffle it
+        let mut card_idxs = vec![];
+        let N = cards.len();
+        println!("  N = {}", N);
+        for i in 0..N {
+            card_idxs.push(i);
+        }
+        rand::thread_rng().shuffle(&mut card_idxs);
 
         // exhaustively search all subsets of order 3 to see if one is a set
         for i in 0..(N - 2) {
             for j in (i + 1)..(N - 1) {
                 for k in (j + 1)..N {
-                    let possible_trade = Trade::new([cards[i], cards[j], cards[k]]);
+                    let cai_i = cards[card_idxs[i]];
+                    let cai_j = cards[card_idxs[j]];
+                    let cai_k = cards[card_idxs[k]];
+                    let possible_trade = Trade::new([cai_i, cai_j, cai_k]);
+
                     if possible_trade.is_set() {
                         return Some(possible_trade);
                     }
@@ -306,36 +290,31 @@ impl Player for RandomPlayer {
     fn fortify(&self) -> Move {
         unimplemented!()
     }
-
-    fn add_cards(&mut self, cards: Vec<Card>) {
-        self.cards.extend(cards);
-    }
-
-    fn get_cards(&self) -> &[Card] {
-        &self.cards[..]
-    }
-
-    fn remove_card(&mut self, i: usize) {
-        self.cards.remove(i);
-    }
 }
 
 
-// should this be a trait instead or is that overkill?
-struct Deck {
-    available: Vec<Card>,
-    discarded: Vec<Card>,
+struct CardManager {
+    cards: Vec<Card>,
+    available: Vec<CardId>,
+    discarded: Vec<CardId>,
+    player_cards: HashMap<PlayerId, Vec<CardId>>,
 }
 
-impl Deck {
-    pub fn new(cards: Vec<Card>) -> Deck {
-        Deck {
-            available: cards,
+impl CardManager {
+    pub fn new(num_players: usize, cards: Vec<Card>) -> CardManager {
+        let mut map = HashMap::new();
+        for i in 0..(num_players as PlayerId) {
+            map.insert(i, Vec::new());
+        }
+        CardManager {
+            cards: cards,
+            available: (0..NUM_TERRITORIES as CardId).collect(),
             discarded: Vec::new(),
+            player_cards: map,
         }
     }
 
-    pub fn standard_deck() -> Deck {
+    pub fn standard_card_manager(num_players: usize) -> CardManager {
         let mut cards = Vec::new();
         let offset = rand::thread_rng().gen_range(0, 3);
         for i in 0..42 {
@@ -345,23 +324,79 @@ impl Deck {
         for _ in 0..2 {
             cards.push(Card::Wild);
         }
-        Deck::new(cards)
+        CardManager::new(num_players, cards)
     }
 
-    pub fn discard(&mut self, card: Card) {
-        self.discarded.push(card);
+    pub fn player_discard_card(&mut self, player: PlayerId, cid: CardId) {
+        match self.player_cards.get_mut(&player) {
+            None => panic!("Player {} is invalid", player),
+            Some(player_cards) => self.discarded.push(player_cards.remove(cid)),
+        }
     }
 
-    pub fn draw_random(&mut self) -> Card {
-        let i = rand::thread_rng().gen_range(0, self.available.len());
-        self.available.remove(i)
-    }
-
-    pub fn get_available(&self) -> &[Card] {
+    pub fn get_available(&self) -> &[CardId] {
         &self.available[..]
     }
-}
 
+    pub fn get_player_cards(&self, player: PlayerId) -> Vec<CardAndId> {
+        match self.player_cards.get(&player) {
+            None => panic!("Player {} is invalid", player),
+            Some(cards) => cards.clone()
+                                .iter()
+                                .map(|&id| (self.cards[id], id))
+                                .collect(),
+        }
+    }
+
+    pub fn get_num_player_cards(&self, player: PlayerId) -> usize {
+        let cards = self.player_cards.get(&player);
+        match self.player_cards.get(&player) {
+            None => panic!("Player {} is invalid", player),
+            Some(cards) => cards.len(),
+        }
+    }
+
+    // when the `available` pile is empty, add in the discarded cards.
+    fn recycle_discard_pile(&mut self) {
+        for _ in 0..(self.discarded.len()) {
+            self.available.push(self.discarded.pop().unwrap());
+        }
+    }
+
+    pub fn draw_random_for_player(&mut self, player: PlayerId) {
+        if self.available.len() == 0 {
+            self.recycle_discard_pile();
+        }
+
+        let i = rand::thread_rng().gen_range(0, self.available.len());
+
+        match self.player_cards.get_mut(&player) {
+            None => panic!("Player {} is invalid", player),
+            Some(cards) => cards.push(self.available.remove(i)),
+        }
+    }
+
+    fn player_has_3_cards(&self, player: PlayerId, cards: [CardAndId; 3]) -> bool {
+        match self.player_cards.get(&player) {
+            None => false,
+            Some(player_cards) => {
+                for i in 0..3 {
+                    // if cards[i].1 is not in player_cards, or if it is
+                    // but self.cards[ cards[i].1 ] doesn't match cards[1].0,
+                    // then return false
+                    let cid = cards[i].1;
+                    let matches: Vec<_> = player_cards.iter()
+                                                      .filter(|&x| *x == cid)
+                                                      .collect();
+                    if matches.len() != 1 || cards[i].0 != self.cards[cid] {
+                        return false;
+                    }
+                }
+                true
+            }
+        }
+    }
+}
 
 // odds from https://www.kent.ac.uk/smsas/personal/odl/riskfaq.htm#3.2
 fn one_rolled_1(attacker: NumArmies, defender: NumArmies) -> Option<[f64; 2]> {
@@ -388,21 +423,21 @@ struct GameManager {
     board: Box<GameBoard>,
 
     // the cards available to be given to a player who conquers a territory in
-    // their turn
-    cards: Deck,
+    // their turn (also the discard pile is contained in this data structure)
+    cards: CardManager,
 
     curr_player: usize,
 }
 
 impl GameManager {
     pub fn new_game(players: Vec<Box<Player>>) -> GameManager {
-        let num_players = players.len() as u8;
-        let board = StandardGameBoard::randomly_distributed(num_players);
+        let num_players = players.len();
+        let board = StandardGameBoard::randomly_distributed(num_players as u8);
 
         GameManager {
             players: players,
             board: Box::new(board),
-            cards: Deck::standard_deck(),
+            cards: CardManager::standard_card_manager(num_players),
             curr_player: 0,
         }
     }
@@ -453,12 +488,13 @@ impl GameManager {
     // of a turn, you can turn in as many as you want
     // but during an attack you must turn in only until you have > 5, then you have to stop
     fn process_trade(&mut self, current_id: PlayerId) -> NumArmies {
-        if self.get_player(current_id).get_num_cards() < 3 {
+        if self.cards.get_num_player_cards(current_id) < 3 {
             return 0;
         }
 
-        let trade_necessary = self.get_player(current_id).get_num_cards() > 4;
+        let trade_necessary = self.cards.get_num_player_cards(current_id) > 4;
         let terr_reinf = self.board.get_territory_reinforcements(current_id);
+        let player_cards = self.cards.get_player_cards(current_id); //TODO
 
         let mut reinf = 0;
         loop {
@@ -467,7 +503,7 @@ impl GameManager {
             // I think the key here might be moving the cards out of
             // the Player datastructure
             let chosen_trade = self.get_player(current_id)
-                                   .make_trade(terr_reinf, trade_necessary);
+                                   .make_trade(&player_cards[..], terr_reinf, trade_necessary);
             if self.verify_trade(current_id, &chosen_trade, trade_necessary) {
                 match chosen_trade {
                     Some(trade) => {
@@ -477,7 +513,7 @@ impl GameManager {
                     None => {}
                 }
 
-                if self.get_player(current_id).get_num_cards() < 3 {
+                if self.cards.get_num_player_cards(current_id) < 3 {
                     break;
                 }
 
@@ -602,8 +638,7 @@ impl GameManager {
         }
 
         if conquered_one {
-            let random_card = self.cards.draw_random();
-            self.give_card_to_player(curr_id, random_card);
+            self.cards.draw_random_for_player(curr_id);
         }
     }
 
@@ -677,7 +712,8 @@ impl GameManager {
     fn verify_trade(&self, player: PlayerId, trade: &Option<Trade>, necessary: bool) -> bool {
         match *trade {
             None => !necessary,
-            Some(ref trade) => self.get_player(player).has_3_cards(trade.cards) && trade.is_set(),
+            Some(ref trade) => self.cards.player_has_3_cards(player, trade.cards) &&
+                               trade.is_set(),
         }
     }
 
@@ -705,11 +741,6 @@ impl GameManager {
 
     fn get_player(&self, id: PlayerId) -> &Player {
         self.players[id as usize].as_ref()
-    }
-
-    fn give_card_to_player(&mut self, id: PlayerId, card: Card) {
-        println!("Player {} received card {:?}", id, card);
-        self.players[id as usize].add_card(card);
     }
 }
 
