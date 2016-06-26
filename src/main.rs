@@ -234,8 +234,11 @@ impl Attack {
     }
 }
 
-// TODO
-type Move = ();
+struct Move {
+    pub origin: TerritoryId,
+    pub destination: TerritoryId,
+    pub amount: NumArmies,
+}
 
 trait Player {
     // called at the beginning of the turn, prompts the player to turn in a set
@@ -254,9 +257,9 @@ trait Player {
     // from the attacking territory to the newly occupied territory
     fn make_combat_move(&self) -> Move;
 
-    // called exactly once per turn after all attacks are completed. prompts the user
-    // to fortify a territory?
-    fn fortify(&self) -> Move;
+    // called once per turn after all attacks are completed. prompts the user to
+    // fortify a territory
+    fn fortify(&self, PlayerId, &GameBoard) -> Option<Move>;
 }
 
 
@@ -369,8 +372,50 @@ impl Player for RandomPlayer {
         unimplemented!()
     }
 
-    fn fortify(&self) -> Move {
-        unimplemented!()
+    fn fortify(&self, player: PlayerId, board: &GameBoard) -> Option<Move> {
+        // generate a vector of (tid, list of owned territories adjacent to tid) items,
+        // one for each territory owned by the player
+        let mut terrs_w_adj_owned: Vec<_> = board.get_owned_territories(player)
+                                               .into_iter()
+                                               .map(|tid| {
+            let adj_owned: Vec<_> = board.get_owned_territories(player)
+                                         .into_iter()
+                                         .filter(|&tid2| board.game_map().are_adjacent(tid, tid2)).collect();
+            (tid, adj_owned)
+           }).collect();
+
+        // filter out territories with friendly neighbors
+        terrs_w_adj_owned = terrs_w_adj_owned.into_iter()
+                                             .filter(|&(_, ref owned)| owned.len() > 0)
+                                             .collect();
+
+        // filter out territories with only 1 army
+        terrs_w_adj_owned = terrs_w_adj_owned.into_iter()
+                                             .filter(|&(tid, _)| board.get_num_armies(tid) > 1)
+                                             .collect();
+
+        if terrs_w_adj_owned.len() == 0 {
+            return None;
+        }
+
+        // pick a random owned territory that has at least one adjacent owned
+        // territory.
+        rand::thread_rng().shuffle(&mut terrs_w_adj_owned);
+        let mut origin = &mut terrs_w_adj_owned[0];
+
+        // pick a random destination territory
+        rand::thread_rng().shuffle(&mut origin.1);
+        let destination = origin.1[0];
+
+
+        // pick a random int between 0 and get_num_armies(origin territory) - 1
+        let rand_num_armies = rand::thread_rng().gen_range(0, board.get_num_armies(origin.0) - 1);
+        Some(Move {
+            origin: origin.0,
+            destination: destination,
+            amount: rand_num_armies,
+        })
+
     }
 }
 
@@ -543,7 +588,7 @@ impl GameManager {
         self.log_starting_game();
         let mut current_player = self.current_player();
 
-        const MAX_NUM_TURNS: usize = 40;
+        const MAX_NUM_TURNS: usize = 100;
         let mut turn = 0;
 
         while !self.board.game_is_over() {
@@ -552,6 +597,7 @@ impl GameManager {
                 let trade_reinf = self.process_trade(current_player);
                 self.process_reinforcement(current_player, trade_reinf);
                 self.process_attack(current_player);
+                self.process_fortify(current_player);
 
                 if turn >= MAX_NUM_TURNS {
                     println!("MAX_NUM_TURNS exceeded, terminating game");
@@ -560,6 +606,7 @@ impl GameManager {
             }
             current_player = self.next_player();
         }
+        println!("Player {} has won", self.board.get_owner(0));
     }
 
     pub fn log_starting_game(&self) {
@@ -808,8 +855,21 @@ impl GameManager {
         }
     }
 
-    pub fn process_fortify(&mut self, curr_id: PlayerId) {
-        unimplemented!();
+    pub fn process_fortify(&mut self, player: PlayerId) {
+        match self.get_player(player).fortify(player, self.board.as_ref()) {
+            None => return,
+            Some(fortify) => {
+                if self.verify_fortify(player, &fortify) {
+                    self.board.remove_armies(fortify.origin, fortify.amount);
+                    self.board.add_armies(fortify.destination, fortify.amount);
+                    println!("   !!! Player {} moved {} units from {} to {}",
+                             player,
+                             fortify.amount,
+                             fortify.origin,
+                             fortify.destination);
+                }
+            },
+        }
     }
 
     fn verify_trade(&self, player: PlayerId, trade: &Option<Trade>, necessary: bool) -> bool {
@@ -840,6 +900,12 @@ impl GameManager {
         can_attack_with >= attack.amount_attacking &&
         self.board.game_map().are_adjacent(attack.origin, attack.target) &&
         self.board.is_enemy_territory(player, attack.target)
+    }
+
+    fn verify_fortify(&self, player: PlayerId, fortify: &Move) -> bool {
+        self.board.get_owner(fortify.origin) == player &&
+        self.board.get_owner(fortify.destination) == player &&
+        self.board.get_num_armies(fortify.origin) > fortify.amount
     }
 
     fn get_player(&self, id: PlayerId) -> &Player {
