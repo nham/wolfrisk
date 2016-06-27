@@ -32,7 +32,7 @@ impl RandomPlayer {
 }
 
 impl Player for RandomPlayer {
-    fn make_trade(&self, cards: &[CardAndId], other_reinf: NumArmies, necessary: bool) -> Option<Trade> {
+    fn make_trade(&self, cards: &[CardAndId], _other_reinf: NumArmies, necessary: bool) -> Option<Trade> {
         // if necessary or not necessary but a random roll exceeded k for some k in [0, 1]
         // then we make a trade. Identify all of the sets and pick one at
         // random.
@@ -44,17 +44,16 @@ impl Player for RandomPlayer {
 
         // clone the card list and shuffle it
         let mut card_idxs = vec![];
-        let N = cards.len();
-        println!("  N = {}", N);
-        for i in 0..N {
+        let n = cards.len();
+        for i in 0..n {
             card_idxs.push(i);
         }
         rand::thread_rng().shuffle(&mut card_idxs);
 
         // exhaustively search all subsets of order 3 to see if one is a set
-        for i in 0..(N - 2) {
-            for j in (i + 1)..(N - 1) {
-                for k in (j + 1)..N {
+        for i in 0..(n - 2) {
+            for j in (i + 1)..(n - 1) {
+                for k in (j + 1)..n {
                     let cai_i = cards[card_idxs[i]];
                     let cai_j = cards[card_idxs[j]];
                     let cai_k = cards[card_idxs[k]];
@@ -75,7 +74,7 @@ impl Player for RandomPlayer {
                               owned: &[TerritoryId])
                               -> Reinforcement {
         let mut terr_reinf = HashMap::new();
-        for i in 0..reinf {
+        for _ in 0..reinf {
             // pick a random owned territory to assign this reinforcement to
             let rand_idx = rand::thread_rng().gen_range(0, owned.len());
             let rand_terr = owned[rand_idx];
