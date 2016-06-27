@@ -4,37 +4,23 @@ extern crate rand;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
-use board::{GameBoard, GameMap, StandardGameBoard};
+pub use board::{GameBoard, GameMap};
+use board::StandardGameBoard;
+use player::{Player, RandomPlayer};
 
 mod board;
+mod player;
 
 pub const NUM_TERRITORIES: usize = 42;
 
 pub type TerritoryId = u8;
 pub type PlayerId = u8;
-type NumArmies = u16;
-
-
-fn attacking_allowed(pool: NumArmies) -> NumArmies {
-    max_allowed(3, pool)
-}
-
-fn defending_allowed(pool: NumArmies) -> NumArmies {
-    max_allowed(2, pool)
-}
-
-// given `max` and `pool`, returns min(`max`, `pool`)
-fn max_allowed(max: NumArmies, pool: NumArmies) -> NumArmies {
-    if pool > max {
-        max
-    } else {
-        pool
-    }
-}
-
+pub type NumArmies = u16;
 type CardId = usize;
+pub type CardAndId = (Card, CardId);
+pub type AttackTerritories = HashMap<TerritoryId, AttackTerritoryInfo>;
 
-struct Trade {
+pub struct Trade {
     pub cards: [CardAndId; 3],
 }
 
@@ -190,9 +176,8 @@ impl Card {
 
 }
 
-type CardAndId = (Card, CardId);
 
-struct Reinforcement {
+pub struct Reinforcement {
     reinf: HashMap<TerritoryId, NumArmies>,
 }
 
@@ -213,9 +198,7 @@ struct AttackTerritoryInfo {
     pub adj_enemies: HashSet<TerritoryId>,
 }
 
-type AttackTerritories = HashMap<TerritoryId, AttackTerritoryInfo>;
-
-struct Attack {
+pub struct Attack {
     pub origin: TerritoryId,
     pub target: TerritoryId,
     pub amount_attacking: NumArmies,
@@ -234,190 +217,12 @@ impl Attack {
     }
 }
 
-struct Move {
+pub struct Move {
     pub origin: TerritoryId,
     pub destination: TerritoryId,
     pub amount: NumArmies,
 }
 
-trait Player {
-    // called at the beginning of the turn, prompts the player to turn in a set
-    fn make_trade(&self, cards: &[CardAndId], other_reinf: NumArmies, necessary: bool) -> Option<Trade>;
-
-    // called after a potential set trade, prompts the player to distribute
-    // available reinforcements
-    fn distrib_reinforcements(&self, NumArmies, &[TerritoryId]) -> Reinforcement;
-
-    // called after reinforcements are distributed, prompts player to make an attack
-    // takes a slice where each element is an information data structure corresponding
-    // to one of the territories that the player owns.
-    fn make_attack(&self, &AttackTerritories) -> Option<Attack>;
-
-    // called if an attack succeeds. prompts the player to move available armies
-    // from the attacking territory to the newly occupied territory
-    fn make_combat_move(&self) -> Move;
-
-    // called once per turn after all attacks are completed. prompts the user to
-    // fortify a territory
-    fn fortify(&self, PlayerId, &GameBoard) -> Option<Move>;
-}
-
-
-struct RandomPlayer {
-    // determines how often the player trades in a set when it's not necessary
-    // ('nnt' stands for non necessary trade-in
-    param_nnt: f64,
-
-    // determines how often the player attacks from a territory capable of
-    // attacking
-    param_attack: f64,
-}
-
-impl RandomPlayer {
-    // returns a vector of random players (each player is a trait object)
-    pub fn make_random_players(number: usize) -> Vec<Box<Player>> {
-        let mut players = vec![];
-        for _ in 0..number {
-            let player = RandomPlayer {
-                param_nnt: rand::thread_rng().gen_range(0., 1.),
-                param_attack: rand::thread_rng().gen_range(0., 1.),
-            };
-
-            players.push(Box::new(player) as Box<Player>);
-        }
-        players
-    }
-}
-
-impl Player for RandomPlayer {
-    fn make_trade(&self, cards: &[CardAndId], other_reinf: NumArmies, necessary: bool) -> Option<Trade> {
-        // if necessary or not necessary but a random roll exceeded k for some k in [0, 1]
-        // then we make a trade. Identify all of the sets and pick one at
-        // random.
-
-        let x = rand::thread_rng().gen_range(0., 1.);
-        if !necessary && x < self.param_nnt {
-            return None;
-        }
-
-        // clone the card list and shuffle it
-        let mut card_idxs = vec![];
-        let N = cards.len();
-        println!("  N = {}", N);
-        for i in 0..N {
-            card_idxs.push(i);
-        }
-        rand::thread_rng().shuffle(&mut card_idxs);
-
-        // exhaustively search all subsets of order 3 to see if one is a set
-        for i in 0..(N - 2) {
-            for j in (i + 1)..(N - 1) {
-                for k in (j + 1)..N {
-                    let cai_i = cards[card_idxs[i]];
-                    let cai_j = cards[card_idxs[j]];
-                    let cai_k = cards[card_idxs[k]];
-                    let possible_trade = Trade::new([cai_i, cai_j, cai_k]);
-
-                    if possible_trade.is_set() {
-                        return Some(possible_trade);
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    fn distrib_reinforcements(&self,
-                              reinf: NumArmies,
-                              owned: &[TerritoryId])
-                              -> Reinforcement {
-        let mut terr_reinf = HashMap::new();
-        for i in 0..reinf {
-            // pick a random owned territory to assign this reinforcement to
-            let rand_idx = rand::thread_rng().gen_range(0, owned.len());
-            let rand_terr = owned[rand_idx];
-            let amt = terr_reinf.entry(rand_terr).or_insert(0);
-            *amt += 1;
-        }
-
-        Reinforcement::new(terr_reinf)
-    }
-
-    fn make_attack(&self, terr_info: &AttackTerritories) -> Option<Attack> {
-        for info in terr_info.values() {
-            if info.armies > 1 && info.adj_enemies.len() > 0 {
-                let x = rand::thread_rng().gen_range(0., 1.);
-                if x >= self.param_attack {
-                    let defender = {
-                        let mut adj_enemies: Vec<_> = info.adj_enemies.iter()
-                                                                      .map(|&e| e)
-                                                                      .collect();
-                        rand::thread_rng().shuffle(&mut adj_enemies);
-                        adj_enemies[0]
-                    };
-
-                    // TODO: this always takes the max amount that can be attacked with
-                    // should it be something different?
-                    return Some(Attack::new(info.id,
-                                            defender,
-                                            attacking_allowed(info.armies - 1)));
-                }
-            }
-        }
-        None
-    }
-
-    fn make_combat_move(&self) -> Move {
-        unimplemented!()
-    }
-
-    fn fortify(&self, player: PlayerId, board: &GameBoard) -> Option<Move> {
-        // generate a vector of (tid, list of owned territories adjacent to tid) items,
-        // one for each territory owned by the player
-        let mut terrs_w_adj_owned: Vec<_> = board.get_owned_territories(player)
-                                               .into_iter()
-                                               .map(|tid| {
-            let adj_owned: Vec<_> = board.get_owned_territories(player)
-                                         .into_iter()
-                                         .filter(|&tid2| board.game_map().are_adjacent(tid, tid2)).collect();
-            (tid, adj_owned)
-           }).collect();
-
-        // filter out territories with friendly neighbors
-        terrs_w_adj_owned = terrs_w_adj_owned.into_iter()
-                                             .filter(|&(_, ref owned)| owned.len() > 0)
-                                             .collect();
-
-        // filter out territories with only 1 army
-        terrs_w_adj_owned = terrs_w_adj_owned.into_iter()
-                                             .filter(|&(tid, _)| board.get_num_armies(tid) > 1)
-                                             .collect();
-
-        if terrs_w_adj_owned.len() == 0 {
-            return None;
-        }
-
-        // pick a random owned territory that has at least one adjacent owned
-        // territory.
-        rand::thread_rng().shuffle(&mut terrs_w_adj_owned);
-        let mut origin = &mut terrs_w_adj_owned[0];
-
-        // pick a random destination territory
-        rand::thread_rng().shuffle(&mut origin.1);
-        let destination = origin.1[0];
-
-
-        // pick a random int between 0 and get_num_armies(origin territory) - 1
-        let rand_num_armies = rand::thread_rng().gen_range(0, board.get_num_armies(origin.0) - 1);
-        Some(Move {
-            origin: origin.0,
-            destination: destination,
-            amount: rand_num_armies,
-        })
-
-    }
-}
 
 
 struct CardManager {
@@ -530,6 +335,24 @@ impl CardManager {
     }
 }
 
+
+fn attacking_allowed(pool: NumArmies) -> NumArmies {
+    max_allowed(3, pool)
+}
+
+fn defending_allowed(pool: NumArmies) -> NumArmies {
+    max_allowed(2, pool)
+}
+
+// given `max` and `pool`, returns min(`max`, `pool`)
+fn max_allowed(max: NumArmies, pool: NumArmies) -> NumArmies {
+    if pool > max {
+        max
+    } else {
+        pool
+    }
+}
+
 // odds from https://www.kent.ac.uk/smsas/personal/odl/riskfaq.htm#3.2
 fn one_rolled_1(attacker: NumArmies, defender: NumArmies) -> Option<[f64; 2]> {
     match (attacker, defender) {
@@ -606,7 +429,6 @@ impl GameManager {
             }
             current_player = self.next_player();
         }
-        println!("Player {} has won", self.board.get_owner(0));
     }
 
     pub fn log_starting_game(&self) {
