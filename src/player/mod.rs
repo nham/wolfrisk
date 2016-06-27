@@ -3,6 +3,7 @@ use super::{PlayerId, TerritoryId, NumArmies, CardAndId, AttackTerritories};
 use super::{GameBoard, Trade, Reinforcement, Attack, Move};
 
 mod random_player;
+mod human_player;
 
 pub trait Player {
     // called at the beginning of the turn, prompts the player to turn in a set

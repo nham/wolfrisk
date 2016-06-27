@@ -1,5 +1,6 @@
 use rand::{self, Rng};
 use std::collections::HashMap;
+
 use super::Player;
 use ::{PlayerId, TerritoryId, NumArmies, CardAndId, AttackTerritories};
 use ::{GameBoard, GameMap, Trade, Reinforcement, Attack, Move};
