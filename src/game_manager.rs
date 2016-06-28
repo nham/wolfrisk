@@ -335,19 +335,24 @@ impl GameManager {
     }
 
     pub fn process_fortify(&mut self, player: PlayerId) {
-        match self.get_player(player).fortify(player, self.board.as_ref()) {
-            None => return,
-            Some(fortify) => {
-                if self.verify_fortify(player, &fortify) {
-                    self.board.remove_armies(fortify.origin, fortify.amount);
-                    self.board.add_armies(fortify.destination, fortify.amount);
-                    println!("   !!! Player {} moved {} units from {} to {}",
-                             player,
-                             fortify.amount,
-                             fortify.origin,
-                             fortify.destination);
-                }
-            },
+        loop {
+            match self.get_player(player).fortify(player, self.board.as_ref()) {
+                None => return,
+                Some(fortify) => {
+                    if self.verify_fortify(player, &fortify) {
+                        self.board.remove_armies(fortify.origin, fortify.amount);
+                        self.board.add_armies(fortify.destination, fortify.amount);
+                        println!("   !!! Player {} moved {} units from {} to {}",
+                                 player,
+                                 fortify.amount,
+                                 fortify.origin,
+                                 fortify.destination);
+                        return;
+                    } else {
+                        println!("Invalid fortify move. Please choose again.");
+                    }
+                },
+            }
         }
     }
 
@@ -384,6 +389,7 @@ impl GameManager {
     fn verify_fortify(&self, player: PlayerId, fortify: &Move) -> bool {
         self.board.get_owner(fortify.origin) == player &&
         self.board.get_owner(fortify.destination) == player &&
+        self.board.game_map().are_adjacent(fortify.origin, fortify.destination) &&
         self.board.get_num_armies(fortify.origin) > fortify.amount
     }
 

@@ -64,6 +64,7 @@ impl Player for HumanPlayer {
         for terr in owned.iter() {
             print!("{:?} ", terr);
         }
+        println!("");
         flush_stdout();
 
         let mut reinf = HashMap::new();
@@ -92,6 +93,8 @@ impl Player for HumanPlayer {
                                 } else {
                                     reinf.insert(terr, num_armies);
                                 }
+
+                                break;
                             },
                         }
                     }
@@ -103,7 +106,37 @@ impl Player for HumanPlayer {
     }
 
     fn make_attack(&self, terr_info: &AttackTerritories) -> Option<Attack> {
-        unimplemented!()
+        // print out info
+        for info in terr_info.values() {
+            println!("Territory {} has {} units and adjacent enemies {:?}",
+                     info.id, info.armies, info.adj_enemies.iter()
+                                                           .map(|&x| x)
+                                                           .collect::<Vec<_>>());
+        }
+
+        // ask if user wants to make an attack
+        // if so, take in the origin and target territories and the number of
+        // units to attack with
+        loop {
+            let input = prompt("Attack? (y/n):").trim().to_ascii_lowercase();
+            if input.len() == 1 {
+                let chars: Vec<_> = input.chars().collect();
+                match chars[0] {
+                    'n' => return None,
+                    'y' => {
+                        let origin = repeatedly_prompt_and_parse::<TerritoryId>(" Origin territory: ");
+                        let target = repeatedly_prompt_and_parse::<TerritoryId>(" Target territory: ");
+                        // TODO: this would be friendlier if checked whether the amount was within
+                        // the available amount of units that can be attacked with
+                        let num_armies = repeatedly_prompt_and_parse::<NumArmies>(" Number of armies: ");
+                        return Some(Attack::new(origin,
+                                                target,
+                                                num_armies));
+                    }
+                    _ => continue,
+                }
+            }
+        }
     }
 
 
@@ -112,7 +145,28 @@ impl Player for HumanPlayer {
     }
 
     fn fortify(&self, player: PlayerId, board: &GameBoard) -> Option<Move> {
-        unimplemented!()
+        loop {
+            let input = prompt("Fortify? (y/n):").trim().to_ascii_lowercase();
+            if input.len() == 1 {
+                let chars: Vec<_> = input.chars().collect();
+                match chars[0] {
+                    'n' => return None,
+                    'y' => {
+                        let origin = repeatedly_prompt_and_parse::<TerritoryId>(" Origin territory: ");
+                        let dest = repeatedly_prompt_and_parse::<TerritoryId>(" Destination territory: ");
+                        // TODO: this would be friendlier if checked whether the amount was within
+                        // the available amount of units that can be moved
+                        let num_armies = repeatedly_prompt_and_parse::<NumArmies>(" Number of armies to move: ");
+                        return Some(Move {
+                            origin: origin,
+                            destination: dest,
+                            amount: num_armies,
+                        });
+                    }
+                    _ => continue,
+                }
+            }
+        }
     }
     
 }
@@ -120,6 +174,16 @@ impl Player for HumanPlayer {
 // panics if it couldn't flush it
 fn flush_stdout() {
     io::stdout().flush().expect("Couldn't flush stdout");
+}
+
+// keep prompting and parsing until one of the parses succeeds
+fn repeatedly_prompt_and_parse<T: FromStr>(msg: &str) -> T {
+    loop {
+        match prompt_and_parse::<T>(msg) {
+            Err(_) => continue,
+            Ok(tid) => return tid,
+        };
+    }
 }
 
 

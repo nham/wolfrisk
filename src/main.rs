@@ -4,7 +4,7 @@ extern crate rand;
 use std::collections::{HashMap, HashSet};
 
 pub use board::{GameBoard, GameMap};
-use player::RandomPlayer;
+use player::{RandomPlayer, HumanPlayer};
 use game_manager::GameManager;
 
 mod board;
@@ -248,6 +248,8 @@ fn max_allowed(max: NumArmies, pool: NumArmies) -> NumArmies {
 
 fn main() {
     println!("Hello, world!");
-    let mut mgr = GameManager::new_game(RandomPlayer::make_random_players(4));
+    let mut players = RandomPlayer::make_random_players(3);
+    players.push(Box::new(HumanPlayer));
+    let mut mgr = GameManager::new_game(players);
     mgr.run();
 }

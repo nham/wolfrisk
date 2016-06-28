@@ -1,4 +1,5 @@
 pub use self::random_player::RandomPlayer;
+pub use self::human_player::HumanPlayer;
 use super::{PlayerId, TerritoryId, NumArmies, CardAndId, AttackTerritories};
 use super::{GameBoard, Trade, Reinforcement, Attack, Move};
 
