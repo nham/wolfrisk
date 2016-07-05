@@ -73,6 +73,7 @@ impl GameManager {
 
         while !self.board.game_is_over() {
             if !self.board.player_is_defeated(current_player) {
+                self.board.display();
                 turn += 1;
                 let trade_reinf = self.process_trade(current_player);
                 self.process_reinforcement(current_player, trade_reinf);
@@ -133,6 +134,7 @@ impl GameManager {
                 println!("Invalid trade chosen. Choose again.");
             }
         }
+        self.board.display();
         reinf
     }
 
@@ -179,6 +181,7 @@ impl GameManager {
                                  self.board.get_num_armies(terr));
                     }
                 }
+                self.board.display();
                 break;
             } else {
                 println!("Invalid reinforcement chosen. Choose again.");
@@ -234,6 +237,8 @@ impl GameManager {
         let mut conquered_one = false;
 
         loop {
+            // TODO: would be nice if it detected when player could no longer attack
+            // and automatically ended attacking, maybe
             let chosen_attack = self.get_player(player).make_attack(&attack_info);
             match chosen_attack {
                 None => break,
@@ -245,6 +250,7 @@ impl GameManager {
                              attack.target);
                     if self.verify_battle(player, &attack) {
                         let conquered = self.perform_battle(&attack);
+                        self.board.display();
 
                         self.update_attack_info(&mut attack_info,
                                                 attack.origin,
@@ -265,6 +271,8 @@ impl GameManager {
         if conquered_one {
             self.cards.draw_random_for_player(player);
         }
+
+        self.board.display();
     }
 
     // this function is called once the proposed attack has been verified
@@ -337,7 +345,7 @@ impl GameManager {
     pub fn process_fortify(&mut self, player: PlayerId) {
         loop {
             match self.get_player(player).fortify(player, self.board.as_ref()) {
-                None => return,
+                None => break,
                 Some(fortify) => {
                     if self.verify_fortify(player, &fortify) {
                         self.board.remove_armies(fortify.origin, fortify.amount);
@@ -347,7 +355,8 @@ impl GameManager {
                                  fortify.amount,
                                  fortify.origin,
                                  fortify.destination);
-                        return;
+                        self.board.display();
+                        break;
                     } else {
                         println!("Invalid fortify move. Please choose again.");
                     }

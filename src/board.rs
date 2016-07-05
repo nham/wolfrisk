@@ -32,6 +32,9 @@ pub trait GameBoard {
     // A GameBoard has an underlying GameMap
     fn game_map(&self) -> &GameMap;
 
+    // TODO: this should open a window, I guess? do we need &mut self for this?
+    fn display(&self);
+
     fn is_enemy_territory(&self, player: PlayerId, tid: TerritoryId) -> bool {
         self.get_owner(tid) != player
     }
@@ -429,5 +432,17 @@ impl GameBoard for StandardGameBoard {
 
     fn game_map(&self) -> &GameMap {
         &self.map
+    }
+
+    fn display(&self) {
+        // TODO: use glium to open a window, display the graph
+        // where each node is a territory, also display the name
+        // of each territory.
+        //
+        // players should maybe be assigned a color, and then each node
+        // can have a colored number representing a) how many units and
+        // b) who owns. alternative to colors is names? I think colors is
+        // best option
+        unimplemented!()
     }
 }
